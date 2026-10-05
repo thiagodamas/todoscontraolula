@@ -245,7 +245,7 @@
 <nav class="menu" id="menu">
   <button type="button" data-tela="mapa" class="ativa">Mapa</button>
   <button type="button" data-tela="apertado">Duelo apertado</button>
-  <button type="button" data-tela="terceira">Terceira via cobre a diferença</button>
+  <button type="button" data-tela="conversoes">Conversões</button>
   <button type="button" data-tela="perda">Esfriou desde 2022</button>
   <div class="menu-filtros">
     <label>Eleição
@@ -277,7 +277,7 @@
     <legend>No mapa</legend>
     <label><input type="radio" name="filtro-mapa" value="" checked> Todos</label>
     <label><input type="radio" name="filtro-mapa" value="apertado"> Duelo apertado</label>
-    <label><input type="radio" name="filtro-mapa" value="terceira"> Terceira via</label>
+    <label><input type="radio" name="filtro-mapa" value="conversoes"> Conversões</label>
     <label><input type="radio" name="filtro-mapa" value="perda"> Esfriou desde 2022</label>
   </fieldset>
   <p class="nota" id="nota-filtro" hidden></p>
@@ -497,7 +497,12 @@ function pintarResumo() {
 function linhaCandidato(nome, votos, total, classe) {
   return "<tr class='" + (classe || "") + "'><td>" + nome + "</td><td>" + numero(votos) + "</td><td>" + percentual(votos, total) + "</td></tr>";
 }
-function tabelaEleicao(votos, eleicaoId) {
+function abstencaoDe(aptos, conta, eleicaoId) {
+  if (eleicaoId !== "2026-1") return 0;
+  const comparecimento = conta.validos + conta.branco + conta.nulo;
+  return Math.max(0, (aptos || 0) - comparecimento);
+}
+function tabelaEleicao(votos, eleicaoId, aptos) {
   const nomes = D.nomes[eleicaoId] || {};
   const conta = resumo(votos);
   const linhas = Object.entries(votos)
@@ -509,6 +514,9 @@ function tabelaEleicao(votos, eleicaoId) {
     });
   linhas.push(linhaCandidato("Branco", conta.branco, conta.validos + conta.branco + conta.nulo));
   linhas.push(linhaCandidato("Nulo", conta.nulo, conta.validos + conta.branco + conta.nulo));
+  if (eleicaoId === "2026-1") {
+    linhas.push(linhaCandidato("Abstenção", abstencaoDe(aptos, conta, eleicaoId), aptos));
+  }
   return "<table><thead><tr><th>Candidato</th><th>Votos</th><th>%</th></tr></thead><tbody>" + linhas.join("") + "</tbody></table>";
 }
 function mostrarFicha(local) {
@@ -525,7 +533,7 @@ function mostrarFicha(local) {
     "<h3>" + local.nome + "</h3>" +
     "<div class='meta'>" + local.cidade + " · Zona " + local.zona + " · " + local.bairro + "<br>" + local.endereco +
     "<br>" + local.n_secoes + " seções · " + numero(local.aptos) + " eleitores aptos em 2026</div>" +
-    aviso + tabelaEleicao(votosDe(local, eleicao), eleicao) +
+    aviso + tabelaEleicao(votosDe(local, eleicao), eleicao, local.aptos) +
     "<h2>Seções neste local</h2><table><thead><tr><th>Seção</th><th class='lula'>Lula</th><th class='adv'>" + nomeAzul() + "</th><th>Outros</th><th>Aptos</th></tr></thead><tbody>" +
     secoes + "</tbody></table>";
 }
@@ -548,18 +556,29 @@ const listas = [
     itens(locais) { return ranquear(locais, (conta) => conta.duelo >= 150 && Math.abs(conta.lula - conta.adv) / conta.duelo <= 0.08, (conta) => conta.duelo); }
   },
   {
-    id: "terceira",
-    titulo: "Terceira via cobre a diferença",
+    id: "conversoes",
+    titulo: "Conversões",
     texto() {
       const eleicao = eleicaoAtual();
-      if (eleicao.id === "2022-2") {
-        return "No 2º turno de 2022 a disputa é só entre Lula e Jair Bolsonaro. Não há votos de outros candidatos para cobrir a diferença.";
+      const base = "Lula está na frente de " + eleicao.adversario + " em " + eleicao.rotulo + ". Entram locais com pelo menos 80 votos no duelo em que os votos conversíveis cobrem essa vantagem. Os de menor vantagem aparecem primeiro.";
+      if (eleicao.id === "2026-1") {
+        return base + " A conta soma outros candidatos, brancos, nulos e abstenções. A abstenção é o eleitor apto em 2026 que não votou.";
       }
-      return "Lula está na frente de " + eleicao.adversario + " em " + eleicao.rotulo + ", mas os votos dos outros candidatos são maiores do que essa vantagem. Se parte dessa terceira via for para " + eleicao.adversario + ", o local vira.";
+      if (eleicao.id === "2022-2") {
+        return base + " No 2º turno a conta usa brancos e nulos.";
+      }
+      return base + " A conta soma outros candidatos, brancos e nulos.";
     },
     itens(locais) {
-      if (eleicaoAtual().id === "2022-2") return [];
-      return ranquear(locais, (conta) => conta.lula > conta.adv && conta.outros >= (conta.lula - conta.adv) && conta.duelo >= 80, (conta) => conta.outros);
+      const eleicaoId = eleicaoAtual().id;
+      return locais.map((local) => {
+        const agora = resumo(votosDe(local, eleicaoId));
+        const faltou = abstencaoDe(local.aptos, agora, eleicaoId);
+        const conversiveis = agora.outros + agora.branco + agora.nulo + faltou;
+        const vantagem = agora.lula - agora.adv;
+        return { local, agora, faltou, conversiveis, vantagem };
+      }).filter((item) => item.agora.duelo >= 80 && item.vantagem > 0 && item.conversiveis >= item.vantagem)
+        .sort((a, b) => a.vantagem - b.vantagem || b.conversiveis - a.conversiveis);
     }
   },
   {
@@ -606,7 +625,7 @@ let linhasRanking = [];
 function colunasRanking() {
   const eleicao = eleicaoAtual();
   const nome = eleicao.adversario;
-  if (aba === "terceira") return ["Local", "Município", "Bairro", "Lula", nome, "Outros", "Vantagem do Lula"];
+  if (aba === "conversoes") return ["Local", "Município", "Bairro", "Lula", nome, "Outros", "Brancos", "Nulos", "Abstenções", "Vantagem do Lula"];
   if (aba === "perda") {
     const antes = eleicaoPorId(eleicaoAnterior(eleicao.id));
     return ["Local", "Município", "Bairro", "Lula", nome, antes.adversario + " no duelo de " + antes.rotulo, nome + " no duelo de " + eleicao.rotulo, "Queda"];
@@ -635,7 +654,10 @@ function pintarRanking() {
     const conta = item.agora;
     const comum = "<td>" + escapar(item.local.nome) + "</td><td>" + escapar(item.local.cidade) + "</td><td>" + escapar(item.local.bairro) + "</td><td class='lula'>" + numero(conta.lula) + "</td><td class='adv'>" + numero(conta.adv) + "</td>";
     let extra = "<td>" + numero(conta.duelo) + "</td>";
-    if (aba === "terceira") extra = "<td>" + numero(conta.outros) + "</td><td>" + numero(conta.lula - conta.adv) + "</td>";
+    if (aba === "conversoes") {
+      const absteve = eleicaoAtual().id === "2026-1" ? numero(item.faltou) : "–";
+      extra = "<td>" + numero(conta.outros) + "</td><td>" + numero(conta.branco) + "</td><td>" + numero(conta.nulo) + "</td><td>" + absteve + "</td><td>" + numero(item.vantagem) + "</td>";
+    }
     if (aba === "perda") {
       extra = "<td>" + percentual(1 - item.antes.lulaNoDuelo, 1) + "</td><td>" + percentual(1 - conta.lulaNoDuelo, 1) + "</td><td>" +
         (item.queda * 100).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " p.p.</td>";
