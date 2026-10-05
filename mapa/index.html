@@ -276,7 +276,7 @@
     <label><input type="checkbox" name="tipo-conversao" value="outros" checked> Outros candidatos</label>
     <label><input type="checkbox" name="tipo-conversao" value="branco" checked> Brancos</label>
     <label><input type="checkbox" name="tipo-conversao" value="nulo" checked> Nulos</label>
-    <label><input type="checkbox" name="tipo-conversao" value="abstencao" checked> Abstenções</label>
+    <label><input type="checkbox" name="tipo-conversao" value="abstencao"> Abstenções</label>
   </fieldset>
   <div class="menu-filtros">
     <label>Eleição
@@ -618,7 +618,7 @@ const listas = [
       const tipos = tiposConversao().map((tipo) => nomes[tipo]);
       const base = "Lula está na frente de " + eleicao.adversario + " em " + eleicao.rotulo + ".";
       if (!tipos.length) return base + " Marque outros candidatos, brancos, nulos ou abstenções. Cada um entra sozinho, ou somado aos marcados.";
-      let texto = base + " A conta usa " + juntar(tipos) + ". Entram locais com pelo menos 80 votos no duelo em que essa conta cobre a vantagem. Os de menor vantagem aparecem primeiro.";
+      let texto = base + " A conta usa " + juntar(tipos) + ". Entram locais com pelo menos 80 votos no duelo em que essa conta cobre a vantagem. Os de maior duelo aparecem primeiro.";
       if (tiposConversao().includes("abstencao")) {
         texto += eleicao.id === "2026-1"
           ? " A abstenção é o eleitor apto em 2026 que não votou."
@@ -636,7 +636,7 @@ const listas = [
         const vantagem = agora.lula - agora.adv;
         return { local, agora, faltou, conversiveis, vantagem };
       }).filter((item) => item.agora.duelo >= 80 && item.vantagem > 0 && item.conversiveis >= item.vantagem)
-        .sort((a, b) => a.vantagem - b.vantagem || b.conversiveis - a.conversiveis);
+        .sort((a, b) => b.agora.duelo - a.agora.duelo || a.vantagem - b.vantagem || b.conversiveis - a.conversiveis);
     }
   },
   {
