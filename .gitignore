@@ -1,0 +1,6 @@
+data/cache/
+data/secoes.csv
+data/locais.csv
+.venv/
+__pycache__/
+*.zip
