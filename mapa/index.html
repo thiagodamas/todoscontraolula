@@ -276,6 +276,7 @@
     <label><input type="checkbox" name="tipo-conversao" value="outros" checked> Outros candidatos</label>
     <label><input type="checkbox" name="tipo-conversao" value="branco" checked> Brancos</label>
     <label><input type="checkbox" name="tipo-conversao" value="nulo" checked> Nulos</label>
+    <label><input type="checkbox" name="tipo-conversao" value="abstencao" checked> Abstenções</label>
   </fieldset>
   <div class="menu-filtros">
     <label>Eleição
@@ -582,12 +583,13 @@ function juntar(itens) {
   if (itens.length <= 1) return itens[0] || "";
   return itens.slice(0, -1).join(", ") + " e " + itens[itens.length - 1];
 }
-function votosConversao(conta) {
+function votosConversao(conta, faltou) {
   const tipos = tiposConversao();
   let total = 0;
   if (tipos.includes("outros")) total += conta.outros;
   if (tipos.includes("branco")) total += conta.branco;
   if (tipos.includes("nulo")) total += conta.nulo;
+  if (tipos.includes("abstencao")) total += faltou;
   return total;
 }
 function atualizarTiposConversao() {
@@ -612,20 +614,27 @@ const listas = [
     titulo: "Possibilidade de Conversão",
     texto() {
       const eleicao = eleicaoAtual();
-      const nomes = { outros: "outros candidatos", branco: "brancos", nulo: "nulos" };
+      const nomes = { outros: "outros candidatos", branco: "brancos", nulo: "nulos", abstencao: "abstenções" };
       const tipos = tiposConversao().map((tipo) => nomes[tipo]);
       const base = "Lula está na frente de " + eleicao.adversario + " em " + eleicao.rotulo + ".";
-      if (!tipos.length) return base + " Marque outros candidatos, brancos ou nulos. Cada um entra sozinho, ou somado aos marcados.";
-      return base + " A conta usa " + juntar(tipos) + ". Entram locais com pelo menos 80 votos no duelo em que essa conta cobre a vantagem. Os de menor vantagem aparecem primeiro.";
+      if (!tipos.length) return base + " Marque outros candidatos, brancos, nulos ou abstenções. Cada um entra sozinho, ou somado aos marcados.";
+      let texto = base + " A conta usa " + juntar(tipos) + ". Entram locais com pelo menos 80 votos no duelo em que essa conta cobre a vantagem. Os de menor vantagem aparecem primeiro.";
+      if (tiposConversao().includes("abstencao")) {
+        texto += eleicao.id === "2026-1"
+          ? " A abstenção é o eleitor apto em 2026 que não votou."
+          : " A abstenção entra no 1º turno de 2026, quando há o total de eleitores aptos.";
+      }
+      return texto;
     },
     itens(locais) {
       if (!tiposConversao().length) return [];
       const eleicaoId = eleicaoAtual().id;
       return locais.map((local) => {
         const agora = resumo(votosDe(local, eleicaoId));
-        const conversiveis = votosConversao(agora);
+        const faltou = abstencaoDe(local.aptos, agora, eleicaoId);
+        const conversiveis = votosConversao(agora, faltou);
         const vantagem = agora.lula - agora.adv;
-        return { local, agora, conversiveis, vantagem };
+        return { local, agora, faltou, conversiveis, vantagem };
       }).filter((item) => item.agora.duelo >= 80 && item.vantagem > 0 && item.conversiveis >= item.vantagem)
         .sort((a, b) => a.vantagem - b.vantagem || b.conversiveis - a.conversiveis);
     }
@@ -680,6 +689,7 @@ function colunasRanking() {
     if (tipos.includes("outros")) colunas.push("Outros");
     if (tipos.includes("branco")) colunas.push("Brancos");
     if (tipos.includes("nulo")) colunas.push("Nulos");
+    if (tipos.includes("abstencao")) colunas.push("Abstenções");
     if (tipos.length > 1) colunas.push("Soma");
     colunas.push("Vantagem do Lula");
     return colunas;
@@ -721,6 +731,7 @@ function pintarRanking() {
       if (tipos.includes("outros")) extra += "<td>" + numero(conta.outros) + "</td>";
       if (tipos.includes("branco")) extra += "<td>" + numero(conta.branco) + "</td>";
       if (tipos.includes("nulo")) extra += "<td>" + numero(conta.nulo) + "</td>";
+      if (tipos.includes("abstencao")) extra += "<td>" + (eleicaoAtual().id === "2026-1" ? numero(item.faltou) : "–") + "</td>";
       if (tipos.length > 1) extra += "<td>" + numero(item.conversiveis) + "</td>";
       extra += "<td>" + numero(item.vantagem) + "</td>";
     }
