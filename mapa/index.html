@@ -149,6 +149,31 @@
     background: white;
   }
   .legenda { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; flex: 1 1 200px; min-width: 180px; }
+  .filtro-mapa {
+    flex: 1 1 100%;
+    margin: 2px 0 0;
+    padding: 0;
+    border: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    align-items: center;
+  }
+  .filtro-mapa legend {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 0;
+  }
+  .filtro-mapa label {
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .filtro-mapa input { margin: 0; }
+  #nota-filtro { flex: 1 1 100%; margin: 0; }
   .barra-topo select, .barra-topo input[type="search"] { min-width: 148px; }
   .barra {
     flex: 1;
@@ -248,6 +273,14 @@
     <div class="barra"></div>
     <span class="lula">Lula</span>
   </div>
+  <fieldset class="filtro-mapa">
+    <legend>No mapa</legend>
+    <label><input type="radio" name="filtro-mapa" value="" checked> Todos</label>
+    <label><input type="radio" name="filtro-mapa" value="apertado"> Duelo apertado</label>
+    <label><input type="radio" name="filtro-mapa" value="terceira"> Terceira via</label>
+    <label><input type="radio" name="filtro-mapa" value="perda"> Esfriou desde 2022</label>
+  </fieldset>
+  <p class="nota" id="nota-filtro" hidden></p>
 </div>
 <aside>
   <button type="button" class="fechar" id="fechar-painel">Fechar</button>
@@ -378,10 +411,32 @@ function locaisFiltrados() {
     return (local.cidade + " " + local.nome + " " + local.bairro + " " + local.endereco).toLowerCase().includes(busca);
   });
 }
+function filtroMapaId() {
+  const marcado = document.querySelector('input[name="filtro-mapa"]:checked');
+  return marcado ? marcado.value : "";
+}
+function aplicarFiltroMapa(locais) {
+  const id = filtroMapaId();
+  const nota = document.querySelector("#nota-filtro");
+  if (!id) {
+    nota.hidden = true;
+    nota.textContent = "";
+    return locais;
+  }
+  const lista = listas.find((item) => item.id === id);
+  const ids = new Set(lista.itens(locais).map((item) => item.local.id));
+  const filtrados = locais.filter((local) => ids.has(local.id));
+  const quantidade = filtrados.length;
+  nota.hidden = false;
+  nota.textContent = quantidade
+    ? (quantidade === 1 ? "1 local neste filtro." : numero(quantidade) + " locais neste filtro.")
+    : lista.texto();
+  return filtrados;
+}
 function desenhar(ajustar) {
   camada.clearLayers();
   const eleicao = eleicaoEl.value;
-  const lista = locaisFiltrados().filter((local) => local.v && local.v[eleicao]);
+  const lista = aplicarFiltroMapa(locaisFiltrados().filter((local) => local.v && local.v[eleicao]));
   const maximo = Math.max(...lista.map((local) => resumo(votosDe(local, eleicao)).validos), 1);
   const limites = [];
   lista.forEach((local) => {
@@ -596,6 +651,8 @@ document.querySelector("#ranking").addEventListener("click", (evento) => {
   if (!linha || linha.dataset.i == null) return;
   const local = linhasRanking[Number(linha.dataset.i)].local;
   selecionado = local.id;
+  const radio = document.querySelector('input[name="filtro-mapa"][value="' + aba + '"]');
+  if (radio) radio.checked = true;
   mostrarTela("mapa");
   mostrarFicha(local);
   abrirPainel();
@@ -639,6 +696,9 @@ eleicaoEl.addEventListener("change", () => {
 });
 cidadeEl.addEventListener("change", desenhar);
 buscaEl.addEventListener("input", desenhar);
+document.querySelectorAll('input[name="filtro-mapa"]').forEach((radio) => {
+  radio.addEventListener("change", () => desenhar());
+});
 document.querySelector("#abrir-painel").addEventListener("click", alternarPainel);
 document.querySelector("#fechar-painel").addEventListener("click", alternarPainel);
 function definirPainel(aberto) {
