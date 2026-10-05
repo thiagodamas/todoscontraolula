@@ -173,6 +173,30 @@
     cursor: pointer;
   }
   .filtro-mapa input { margin: 0; }
+  .tipos-conversao {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .tipos-conversao[hidden] { display: none; }
+  .tipos-conversao legend {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 0;
+  }
+  .tipos-conversao label {
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .tipos-conversao input { margin: 0; }
   #nota-filtro { flex: 1 1 100%; margin: 0; }
   .barra-topo select, .barra-topo input[type="search"] { min-width: 148px; }
   .barra {
@@ -245,8 +269,14 @@
 <nav class="menu" id="menu">
   <button type="button" data-tela="mapa" class="ativa">Mapa</button>
   <button type="button" data-tela="apertado">Duelo apertado</button>
-  <button type="button" data-tela="conversoes">Conversões</button>
+  <button type="button" data-tela="conversoes">Possibilidade de Conversão</button>
   <button type="button" data-tela="perda">Esfriou desde 2022</button>
+  <fieldset class="tipos-conversao" id="tipos-conversao" hidden>
+    <legend>Na conta</legend>
+    <label><input type="checkbox" name="tipo-conversao" value="outros" checked> Outros candidatos</label>
+    <label><input type="checkbox" name="tipo-conversao" value="branco" checked> Brancos</label>
+    <label><input type="checkbox" name="tipo-conversao" value="nulo" checked> Nulos</label>
+  </fieldset>
   <div class="menu-filtros">
     <label>Eleição
       <select id="eleicao"></select>
@@ -277,7 +307,7 @@
     <legend>No mapa</legend>
     <label><input type="radio" name="filtro-mapa" value="" checked> Todos</label>
     <label><input type="radio" name="filtro-mapa" value="apertado"> Duelo apertado</label>
-    <label><input type="radio" name="filtro-mapa" value="conversoes"> Conversões</label>
+    <label><input type="radio" name="filtro-mapa" value="conversoes"> Possibilidade de Conversão</label>
     <label><input type="radio" name="filtro-mapa" value="perda"> Esfriou desde 2022</label>
   </fieldset>
   <p class="nota" id="nota-filtro" hidden></p>
@@ -545,6 +575,28 @@ function eleicaoAnterior(id) {
 function eleicaoPorId(id) {
   return D.eleicoes.find((item) => item.id === id);
 }
+function tiposConversao() {
+  return [...document.querySelectorAll('input[name="tipo-conversao"]:checked')].map((campo) => campo.value);
+}
+function juntar(itens) {
+  if (itens.length <= 1) return itens[0] || "";
+  return itens.slice(0, -1).join(", ") + " e " + itens[itens.length - 1];
+}
+function votosConversao(conta) {
+  const tipos = tiposConversao();
+  let total = 0;
+  if (tipos.includes("outros")) total += conta.outros;
+  if (tipos.includes("branco")) total += conta.branco;
+  if (tipos.includes("nulo")) total += conta.nulo;
+  return total;
+}
+function atualizarTiposConversao() {
+  const caixa = document.querySelector("#tipos-conversao");
+  const visivel = tela === "conversoes" || filtroMapaId() === "conversoes";
+  const mudou = caixa.hidden === visivel;
+  caixa.hidden = !visivel;
+  if (mudou) encaixarMapa();
+}
 const listas = [
   {
     id: "apertado",
@@ -557,26 +609,23 @@ const listas = [
   },
   {
     id: "conversoes",
-    titulo: "Conversões",
+    titulo: "Possibilidade de Conversão",
     texto() {
       const eleicao = eleicaoAtual();
-      const base = "Lula está na frente de " + eleicao.adversario + " em " + eleicao.rotulo + ". Entram locais com pelo menos 80 votos no duelo em que os votos conversíveis cobrem essa vantagem. Os de menor vantagem aparecem primeiro.";
-      if (eleicao.id === "2026-1") {
-        return base + " A conta soma outros candidatos, brancos, nulos e abstenções. A abstenção é o eleitor apto em 2026 que não votou.";
-      }
-      if (eleicao.id === "2022-2") {
-        return base + " No 2º turno a conta usa brancos e nulos.";
-      }
-      return base + " A conta soma outros candidatos, brancos e nulos.";
+      const nomes = { outros: "outros candidatos", branco: "brancos", nulo: "nulos" };
+      const tipos = tiposConversao().map((tipo) => nomes[tipo]);
+      const base = "Lula está na frente de " + eleicao.adversario + " em " + eleicao.rotulo + ".";
+      if (!tipos.length) return base + " Marque outros candidatos, brancos ou nulos. Cada um entra sozinho, ou somado aos marcados.";
+      return base + " A conta usa " + juntar(tipos) + ". Entram locais com pelo menos 80 votos no duelo em que essa conta cobre a vantagem. Os de menor vantagem aparecem primeiro.";
     },
     itens(locais) {
+      if (!tiposConversao().length) return [];
       const eleicaoId = eleicaoAtual().id;
       return locais.map((local) => {
         const agora = resumo(votosDe(local, eleicaoId));
-        const faltou = abstencaoDe(local.aptos, agora, eleicaoId);
-        const conversiveis = agora.outros + agora.branco + agora.nulo + faltou;
+        const conversiveis = votosConversao(agora);
         const vantagem = agora.lula - agora.adv;
-        return { local, agora, faltou, conversiveis, vantagem };
+        return { local, agora, conversiveis, vantagem };
       }).filter((item) => item.agora.duelo >= 80 && item.vantagem > 0 && item.conversiveis >= item.vantagem)
         .sort((a, b) => a.vantagem - b.vantagem || b.conversiveis - a.conversiveis);
     }
@@ -625,7 +674,16 @@ let linhasRanking = [];
 function colunasRanking() {
   const eleicao = eleicaoAtual();
   const nome = eleicao.adversario;
-  if (aba === "conversoes") return ["Local", "Município", "Bairro", "Lula", nome, "Outros", "Brancos", "Nulos", "Abstenções", "Vantagem do Lula"];
+  if (aba === "conversoes") {
+    const tipos = tiposConversao();
+    const colunas = ["Local", "Município", "Bairro", "Lula", nome];
+    if (tipos.includes("outros")) colunas.push("Outros");
+    if (tipos.includes("branco")) colunas.push("Brancos");
+    if (tipos.includes("nulo")) colunas.push("Nulos");
+    if (tipos.length > 1) colunas.push("Soma");
+    colunas.push("Vantagem do Lula");
+    return colunas;
+  }
   if (aba === "perda") {
     const antes = eleicaoPorId(eleicaoAnterior(eleicao.id));
     return ["Local", "Município", "Bairro", "Lula", nome, antes.adversario + " no duelo de " + antes.rotulo, nome + " no duelo de " + eleicao.rotulo, "Queda"];
@@ -640,12 +698,15 @@ function pintarRanking() {
   const quantidade = linhasRanking.length;
   const frase = quantidade === 1 ? "1 local neste recorte." : numero(quantidade) + " locais neste recorte.";
   const semBase = aba === "perda" && !eleicaoAnterior(eleicaoAtual().id);
+  const semTipos = aba === "conversoes" && !tiposConversao().length;
   document.querySelector("#dados-contagem").textContent = semBase
     ? "Escolha o 2º turno de 2022 ou o 1º turno de 2026 para ver onde a fatia azul caiu."
-    : quantidade
-      ? frase + " Clique numa linha para abrir o local no mapa."
-      : "Nenhum local neste recorte.";
-  if (semBase) {
+    : semTipos
+      ? "Marque ao menos um tipo de voto."
+      : quantidade
+        ? frase + " Clique numa linha para abrir o local no mapa."
+        : "Nenhum local neste recorte.";
+  if (semBase || semTipos) {
     document.querySelector("#ranking").innerHTML = "";
     return;
   }
@@ -655,8 +716,13 @@ function pintarRanking() {
     const comum = "<td>" + escapar(item.local.nome) + "</td><td>" + escapar(item.local.cidade) + "</td><td>" + escapar(item.local.bairro) + "</td><td class='lula'>" + numero(conta.lula) + "</td><td class='adv'>" + numero(conta.adv) + "</td>";
     let extra = "<td>" + numero(conta.duelo) + "</td>";
     if (aba === "conversoes") {
-      const absteve = eleicaoAtual().id === "2026-1" ? numero(item.faltou) : "–";
-      extra = "<td>" + numero(conta.outros) + "</td><td>" + numero(conta.branco) + "</td><td>" + numero(conta.nulo) + "</td><td>" + absteve + "</td><td>" + numero(item.vantagem) + "</td>";
+      const tipos = tiposConversao();
+      extra = "";
+      if (tipos.includes("outros")) extra += "<td>" + numero(conta.outros) + "</td>";
+      if (tipos.includes("branco")) extra += "<td>" + numero(conta.branco) + "</td>";
+      if (tipos.includes("nulo")) extra += "<td>" + numero(conta.nulo) + "</td>";
+      if (tipos.length > 1) extra += "<td>" + numero(item.conversiveis) + "</td>";
+      extra += "<td>" + numero(item.vantagem) + "</td>";
     }
     if (aba === "perda") {
       extra = "<td>" + percentual(1 - item.antes.lulaNoDuelo, 1) + "</td><td>" + percentual(1 - conta.lulaNoDuelo, 1) + "</td><td>" +
@@ -719,7 +785,19 @@ eleicaoEl.addEventListener("change", () => {
 cidadeEl.addEventListener("change", desenhar);
 buscaEl.addEventListener("input", desenhar);
 document.querySelectorAll('input[name="filtro-mapa"]').forEach((radio) => {
-  radio.addEventListener("change", () => desenhar());
+  radio.addEventListener("change", () => {
+    atualizarTiposConversao();
+    desenhar();
+  });
+});
+document.querySelectorAll('input[name="tipo-conversao"]').forEach((campo) => {
+  campo.addEventListener("change", () => {
+    if (tela === "mapa") desenhar();
+    else {
+      pintarRanking();
+      desenhar(false);
+    }
+  });
 });
 document.querySelector("#abrir-painel").addEventListener("click", alternarPainel);
 document.querySelector("#fechar-painel").addEventListener("click", alternarPainel);
@@ -751,6 +829,7 @@ function mostrarTela(id) {
   document.querySelectorAll("#menu button[data-tela]").forEach((botao) => {
     botao.classList.toggle("ativa", botao.dataset.tela === id);
   });
+  atualizarTiposConversao();
   if (id === "mapa") {
     mapa.invalidateSize();
     return;
