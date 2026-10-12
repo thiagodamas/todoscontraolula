@@ -193,6 +193,7 @@ def resumir(nome: str, texto: str) -> dict:
     votos = bio = sem = manual = outro = apos = manual_apos = sem_apos = 0
     sequencia = maior = 0
     ultimo = 0
+    horas = [[0, 0, 0] for _ in range(24)]
     hab = HAB_OUTRO
     for dia, hora, mensagem in eventos:
         if dia != dia_eleicao:
@@ -222,20 +223,24 @@ def resumir(nome: str, texto: str) -> dict:
         h, m, s = (int(p) for p in hora.split(":"))
         instante = h * 3600 + m * 60 + s
         votos += 1
+        slot = horas[min(h, 23)]
         ultimo = max(ultimo, instante)
         tarde = instante >= 17 * 3600
         if tarde:
             apos += 1
         if hab == HAB_BIO:
             bio += 1
+            slot[0] += 1
             sequencia = 0
         elif hab == HAB_SEM:
             sem += 1
+            slot[1] += 1
             sequencia = 0
             if tarde:
                 sem_apos += 1
         elif hab == HAB_MANUAL:
             manual += 1
+            slot[2] += 1
             sequencia += 1
             maior = max(maior, sequencia)
             if tarde:
@@ -243,6 +248,9 @@ def resumir(nome: str, texto: str) -> dict:
         else:
             outro += 1
             sequencia = 0
+            if len(slot) == 3:
+                slot.append(0)
+            slot[3] += 1
         hab = HAB_OUTRO
     return {
         "mun": codigo,
@@ -259,6 +267,7 @@ def resumir(nome: str, texto: str) -> dict:
         "seq": maior,
         "ultimo": ultimo,
         "dia": dia_eleicao,
+        "h": horas,
     }
 
 
@@ -277,6 +286,9 @@ def prontos() -> set[tuple[int, int, int]]:
             if not linha:
                 continue
             item = json.loads(linha)
+            horas = item.get("h")
+            if not horas or not isinstance(horas[0], list):
+                continue
             feitos.add((item["mun"], item["zona"], item["secao"]))
     return feitos
 
@@ -294,6 +306,11 @@ def conferir_amostra(logs: list[dict]) -> None:
     obtido = {chave: resumo[chave] for chave in esperado}
     if obtido != esperado:
         raise SystemExit(f"amostra divergiu: {obtido} != {esperado}")
+    partes = [sum(hora[i] for hora in resumo["h"]) for i in range(3)]
+    if partes != [resumo["bio"], resumo["sem"], resumo["man"]]:
+        raise SystemExit(f"amostra por hora divergiu: {partes}")
+    if sum(sum(hora) for hora in resumo["h"]) != resumo["votos"]:
+        raise SystemExit("amostra: a soma das horas não fecha com os votos")
     print(
         f"AMOSTRA_OK Pelotas zona {AMOSTRA[1]} seção {AMOSTRA[2]} "
         f"votos {resumo['votos']} digital {resumo['bio']} sem cadastro {resumo['sem']} "

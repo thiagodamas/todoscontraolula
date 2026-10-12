@@ -62,7 +62,7 @@
   .menu-filtros label { flex-direction: row; align-items: center; white-space: nowrap; }
   .menu select, .menu input[type="search"] { min-width: 132px; font-size: 13px; padding: 5px 8px; }
   .menu input[type="search"] { width: 148px; }
-  #dados {
+  #dados, #horario {
     display: none;
     position: absolute;
     z-index: 700;
@@ -74,11 +74,47 @@
     background: var(--paper);
     padding: 18px 22px 48px;
   }
-  body.tela-dados #dados { display: block; }
-  body.tela-dados .barra-topo, body.tela-dados aside { display: none !important; }
-  #dados h1 { margin: 0 0 6px; font-size: 22px; }
-  #dados table { background: white; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  #dados th { position: sticky; top: 0; background: white; }
+  .histograma {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    height: 320px;
+    margin: 18px 0 8px;
+    padding: 8px 4px 0;
+  }
+  .histograma .col { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; }
+  .histograma .eixo { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+  .histograma .valor { font-size: 11px; color: var(--muted); height: 16px; }
+  .histograma .barra {
+    width: 100%;
+    max-width: 48px;
+    display: flex;
+    flex-direction: column-reverse;
+    border-radius: 6px 6px 0 0;
+    overflow: hidden;
+  }
+  .histograma .pedaco { display: block; width: 100%; }
+  .histograma .pedaco.bio { background: #0f766e; }
+  .histograma .pedaco.sem { background: #b86e00; }
+  .histograma .pedaco.man { background: #6b2d5b; }
+  .histograma .pedaco.out { background: #243044; }
+  .histograma .rotulo { margin-top: 6px; font-size: 12px; color: var(--ink); }
+  .histograma .rotulo.depois { color: #1d4e89; }
+  .histograma .col.pico .rotulo { font-weight: 700; }
+  .histograma.compacto { height: 168px; gap: 3px; margin: 8px 0 4px; }
+  .histograma.compacto .barra { max-width: 28px; }
+  .histograma.compacto .rotulo { font-size: 10px; }
+  .histograma.compacto .valor { font-size: 10px; }
+  .legenda-hora { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0 0; font-size: 12px; }
+  .legenda-hora i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .ficha .tabela-hora tbody tr { cursor: default; }
+  .ficha .tabela-hora { margin-top: 4px; }
+  body.tela-dados #dados, body.tela-hora #horario { display: block; }
+  body.tela-dados .barra-topo, body.tela-dados aside,
+  body.tela-hora .barra-topo, body.tela-hora aside { display: none !important; }
+  #dados h1, #horario h1 { margin: 0 0 6px; font-size: 22px; }
+  #dados table, #horario table { background: white; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  #dados th, #horario th { position: sticky; top: 0; background: white; }
   #dados tbody tr { cursor: pointer; }
   #dados tbody tr:hover { background: #f4f7fb; }
   .barra-topo {
@@ -179,12 +215,15 @@
     .barra-topo { right: 12px; max-width: none; }
     aside { left: 12px; width: auto; }
     .menu-filtros { margin-left: 0; }
+    .col-pct { display: none; }
+    #horario th, #horario td, .ficha .tabela-hora th, .ficha .tabela-hora td { padding: 4px 3px; font-size: 11px; }
   }
 </style>
 </head>
 <body>
 <nav class="menu" id="menu">
   <button type="button" data-tela="mapa" class="ativa">Mapa</button>
+  <button type="button" data-tela="hora">Horário</button>
   <button type="button" data-tela="lista">Seções que divergem</button>
   <div class="menu-filtros">
     <label>Recorte
@@ -215,6 +254,27 @@
   <p class="nota" id="nota-filtro"></p>
 </div>
 <aside id="ficha" class="ficha"></aside>
+<div id="horario">
+  <h1>Votos por horário</h1>
+  <p class="nota" id="hora-nota"></p>
+  <div class="legenda-hora" id="hora-legenda"></div>
+  <div class="histograma" id="histograma"></div>
+  <p class="nota" id="hora-resumo"></p>
+  <table>
+    <thead>
+      <tr>
+        <th class="texto">Hora</th>
+        <th>Digital</th>
+        <th>S/cad.</th>
+        <th>Manual</th>
+        <th>Votos</th>
+        <th class="col-pct">% do dia</th>
+        <th class="col-pct">% acumulado</th>
+      </tr>
+    </thead>
+    <tbody id="hora-corpo"></tbody>
+  </table>
+</div>
 <div id="dados">
   <h1>Seções que divergem</h1>
   <p class="nota" id="regra"></p>
@@ -471,6 +531,7 @@ function pintarFicha(s) {
     "<h2>" + (s.n || "Seção " + s.s) + "</h2>" +
     "<p class=\"nota\">" + s.c + " · zona " + s.z + " · seção " + s.s + (s.b ? " · " + s.b : "") + "</p>" +
     "<p class=\"nota\">" + (s.e || "") + (s.apx ? " Coordenada aproximada." : "") + "</p>" +
+    htmlHorario([s], 120, true) +
     "<p>" + fraseDe(s) + "</p>" +
     "<p class=\"nota\">No município, a abstenção é " + taxaMun(mun, "abs") +
       ", a digital " + taxaMun(mun, "bio") +
@@ -479,14 +540,14 @@ function pintarFicha(s) {
       " e os votos após 17h " + taxaMun(mun, "apos") +
       ". A comparação da abstenção usa a taxa " + base + ".</p>" +
     notas.filter(Boolean).map((t) => "<p>" + t + "</p>").join("") +
-    "<table><thead><tr><th class=\"texto\">Seção</th><th>Aptos</th><th>Abst.</th><th>Digital</th><th>S/cad.</th><th>Manual</th><th>17h</th></tr></thead><tbody>" +
+    "<table><thead><tr><th class=\"texto\">Seção</th><th>Aptos</th><th>Abst.</th><th>Digital</th><th>S/cad.</th><th>Manual</th><th>17h</th></tr></thead><tbody id=\"ficha-irmas\">" +
     linhas + "</tbody></table>";
   document.querySelector("#fechar").onclick = () => {
     selecionado = null;
     document.body.classList.remove("painel-aberto");
     desenhar(false);
   };
-  document.querySelectorAll("#ficha tbody tr").forEach((tr) => {
+  document.querySelectorAll("#ficha-irmas tr").forEach((tr) => {
     tr.onclick = () => {
       const alvo = irmas.find((item) => idDe(item) === tr.dataset.id);
       if (alvo) selecionar(alvo, true);
@@ -539,12 +600,141 @@ function pintarLista() {
     };
   });
 }
+const TIPOS_HORA = [
+  { chave: "bio", nome: "digital" },
+  { chave: "sem", nome: "sem cadastro" },
+  { chave: "man", nome: "manual" },
+  { chave: "out", nome: "outro" }
+];
+function parteHora(valor) {
+  if (Array.isArray(valor)) {
+    return { bio: valor[0] || 0, sem: valor[1] || 0, man: valor[2] || 0, out: valor[3] || 0 };
+  }
+  return { bio: valor || 0, sem: 0, man: 0, out: 0 };
+}
+function totalHora(p) {
+  return p.bio + p.sem + p.man + p.out;
+}
+function somarHoras(lista) {
+  const soma = Array.from({ length: 24 }, () => ({ bio: 0, sem: 0, man: 0, out: 0 }));
+  lista.forEach((s) => {
+    if (!s.h) return;
+    s.h.forEach((q, hora) => {
+      const p = parteHora(q);
+      soma[hora].bio += p.bio;
+      soma[hora].sem += p.sem;
+      soma[hora].man += p.man;
+      soma[hora].out += p.out;
+    });
+  });
+  return { soma, votos: soma.reduce((a, p) => a + totalHora(p), 0) };
+}
+function horasDoRecorte() {
+  return somarHoras(U.secoes.filter(noRecorte));
+}
+function legendaHoraHtml() {
+  return TIPOS_HORA.filter((t) => t.chave !== "out").map((t) =>
+    "<span><i style=\"background:" + CORES[t.chave] + "\"></i>" + t.nome + "</span>"
+  ).join("");
+}
+function pedacosDe(partes, altura) {
+  const ordem = { bio: 0, sem: 1, man: 2, out: 3 };
+  const itens = TIPOS_HORA.map((t) => ({ chave: t.chave, q: partes[t.chave] })).filter((p) => p.q > 0);
+  if (!itens.length || altura <= 0) return [];
+  const soma = itens.reduce((a, p) => a + p.q, 0);
+  itens.forEach((p) => { p.h = Math.floor(altura * p.q / soma); });
+  let resto = altura - itens.reduce((a, p) => a + p.h, 0);
+  const maiores = itens.slice().sort((a, b) => b.q - a.q);
+  for (let i = 0; resto > 0; i = (i + 1) % maiores.length) {
+    maiores[i].h += 1;
+    resto -= 1;
+  }
+  return itens.filter((p) => p.h > 0).sort((a, b) => ordem[a.chave] - ordem[b.chave]);
+}
+function desenharBarras(soma, votos, alturaMax) {
+  const totais = soma.map(totalHora);
+  let inicio = totais.findIndex((q) => q > 0);
+  let fim = totais.length - 1;
+  while (fim > 0 && totais[fim] === 0) fim -= 1;
+  if (inicio < 0) return { html: "", inicio: 0, fim: -1, horaPico: -1, depois: 0, votos: 0, soma };
+  const pico = Math.max(1, ...totais.slice(inicio, fim + 1));
+  const horaPico = totais.indexOf(Math.max(...totais));
+  const depois = totais.slice(17).reduce((a, b) => a + b, 0);
+  const html = totais.slice(inicio, fim + 1).map((q, i) => {
+    const hora = inicio + i;
+    const partes = soma[hora];
+    const altura = q > 0 ? Math.max(2, Math.round(alturaMax * q / pico)) : 0;
+    const pedacos = altura ? pedacosDe(partes, altura) : [];
+    const titulo = hora + "h · " + num(q) + " votos · digital " + num(partes.bio) +
+      " · sem cadastro " + num(partes.sem) + " · manual " + num(partes.man);
+    return "<div class=\"" + (hora === horaPico ? "col pico" : "col") + "\">" +
+      "<span class=\"valor\">" + (hora === horaPico && votos ? pct(q, votos) : "") + "</span>" +
+      "<div class=\"eixo\">" + (altura
+        ? "<div class=\"barra\" style=\"height:" + altura + "px\" title=\"" + titulo + "\">" +
+          pedacos.map((p) => "<span class=\"pedaco " + p.chave + "\" style=\"height:" + p.h + "px\"></span>").join("") +
+          "</div>"
+        : "") + "</div>" +
+      "<span class=\"rotulo" + (hora >= 17 ? " depois" : "") + "\">" + hora + "h</span></div>";
+  }).join("");
+  return { html, inicio, fim, horaPico, depois, votos, soma };
+}
+function linhasHora(grafico, completa) {
+  if (grafico.fim < grafico.inicio) return "";
+  let acumulado = 0;
+  for (let hora = 0; hora < grafico.inicio; hora += 1) acumulado += totalHora(grafico.soma[hora]);
+  let html = "";
+  for (let hora = grafico.inicio; hora <= grafico.fim; hora += 1) {
+    const p = grafico.soma[hora];
+    const q = totalHora(p);
+    acumulado += q;
+    const faixa = hora + "h–" + (hora + 1) + "h";
+    html += "<tr><td class=\"texto\">" + faixa + "</td><td>" + num(p.bio) + "</td><td>" +
+      num(p.sem) + "</td><td>" + num(p.man) + "</td><td>" + num(q) + "</td>" +
+      (completa ? "<td class=\"col-pct\">" + pct(q, grafico.votos) + "</td><td class=\"col-pct\">" + pct(acumulado, grafico.votos) + "</td>" : "") +
+      "</tr>";
+  }
+  return html;
+}
+function textoResumo(grafico, vazio) {
+  if (!grafico.votos) return vazio;
+  const q = totalHora(grafico.soma[grafico.horaPico]);
+  const nome = grafico.horaPico + "h–" + (grafico.horaPico + 1) + "h";
+  return "O maior movimento foi entre " + nome + ", com " + num(q) + " votos (" + pct(q, grafico.votos) +
+    "). Depois das 17h, " + num(grafico.depois) + " votos (" + pct(grafico.depois, grafico.votos) + ").";
+}
+function htmlHorario(lista, altura, secao) {
+  const serie = somarHoras(lista);
+  const grafico = desenharBarras(serie.soma, serie.votos, altura);
+  const vazio = secao
+    ? "Esta seção não tem horário de voto no log."
+    : "Nenhuma seção deste recorte tem horário de voto no log.";
+  const tabela = grafico.fim < grafico.inicio ? "" :
+    "<table class=\"tabela-hora\"><thead><tr><th class=\"texto\">Hora</th><th>Digital</th><th>S/cad.</th><th>Manual</th><th>Votos</th></tr></thead><tbody>" +
+    linhasHora(grafico, false) + "</tbody></table>";
+  return "<div class=\"legenda-hora\">" + legendaHoraHtml() + "</div>" +
+    "<div class=\"histograma compacto\">" + grafico.html + "</div>" +
+    "<p class=\"nota\">" + textoResumo(grafico, vazio) + "</p>" + tabela;
+}
+function pintarHistograma() {
+  const serie = horasDoRecorte();
+  const grafico = desenharBarras(serie.soma, serie.votos, 250);
+  const cidade = cidadeEl.value;
+  const recorte = cidade === "sul" ? "no sul do estado" : cidade ? "em " + cidade : "no Rio Grande do Sul";
+  document.querySelector("#hora-nota").textContent = "Cada barra reúne os votos computados naquela hora, " +
+    recorte + ", empilhados por digital, sem cadastro e liberação manual. O relógio é o da urna. Das 17h em diante estão os votos de quem já estava na fila.";
+  document.querySelector("#hora-legenda").innerHTML = legendaHoraHtml();
+  document.querySelector("#histograma").innerHTML = grafico.html;
+  document.querySelector("#hora-corpo").innerHTML = linhasHora(grafico, true);
+  document.querySelector("#hora-resumo").textContent = textoResumo(grafico, "Nenhuma seção deste recorte tem horário de voto no log.");
+}
 function mostrarTela(nome) {
   document.body.classList.toggle("tela-dados", nome === "lista");
+  document.body.classList.toggle("tela-hora", nome === "hora");
   document.querySelectorAll("#menu button[data-tela]").forEach((botao) => {
     botao.classList.toggle("ativa", botao.dataset.tela === nome);
   });
   if (nome === "lista") pintarLista();
+  else if (nome === "hora") pintarHistograma();
   else {
     encaixarMapa();
     desenhar(false);
@@ -571,10 +761,12 @@ document.querySelectorAll("input[name=filtro-mapa]").forEach((input) => {
 });
 cidadeEl.onchange = () => {
   if (document.body.classList.contains("tela-dados")) pintarLista();
+  if (document.body.classList.contains("tela-hora")) pintarHistograma();
   desenhar(true);
 };
 buscaEl.oninput = () => {
   if (document.body.classList.contains("tela-dados")) pintarLista();
+  if (document.body.classList.contains("tela-hora")) pintarHistograma();
   desenhar(true);
 };
 window.addEventListener("resize", encaixarMapa);

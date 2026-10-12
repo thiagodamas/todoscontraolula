@@ -180,6 +180,7 @@ def main() -> None:
             "out": log["out"],
             "apos": log["apos"],
             "seq": log["seq"],
+            "h": log.get("h") or [0] * 24,
             "cad": cadastrados,
             "f": 0,
             "dif": abs(log["votos"] - comp) if aptos or comp else 0,
@@ -245,8 +246,20 @@ def main() -> None:
         "window.URNAS = " + json.dumps(pacote, ensure_ascii=False, separators=(",", ":")) + ";\n",
         encoding="utf-8",
     )
+    bio_h = sem_h = man_h = out_h = 0
+    for item in registros:
+        for celula in item["h"]:
+            if isinstance(celula, list):
+                bio_h += celula[0]
+                sem_h += celula[1] if len(celula) > 1 else 0
+                man_h += celula[2] if len(celula) > 2 else 0
+                out_h += celula[3] if len(celula) > 3 else 0
+    if registros and isinstance(registros[0]["h"][0], list):
+        if (bio_h, sem_h, man_h, out_h) != (totais["bio"], totais["sem"], totais["man"], totais["out"]):
+            raise SystemExit(f"horas não fecham com os totais: {bio_h, sem_h, man_h, out_h}")
     print("dias", dict(dias))
     print("totais", json.dumps(totais))
+    print("horas", bio_h, sem_h, man_h, out_h)
     print("urnas.js", destino.stat().st_size)
     print("divergem sul", sum(1 for item in divergem if item["sul"]))
 
