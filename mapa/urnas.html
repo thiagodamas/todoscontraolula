@@ -58,6 +58,20 @@
     white-space: nowrap;
   }
   .menu button[data-tela].ativa { background: var(--ink); color: white; border-color: var(--ink); }
+  .menu a.atalho {
+    flex: none;
+    font: inherit;
+    font-size: 13px;
+    border: 1px solid var(--line);
+    background: white;
+    color: var(--ink);
+    border-radius: 99px;
+    padding: 6px 12px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .menu a.atalho.ativa { background: var(--ink); color: white; border-color: var(--ink); }
+  .atalho-divisa { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
   .menu-filtros { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .menu-filtros label { flex-direction: row; align-items: center; white-space: nowrap; }
   .menu select, .menu input[type="search"] { min-width: 132px; font-size: 13px; padding: 5px 8px; }
@@ -222,6 +236,9 @@
 </head>
 <body>
 <nav class="menu" id="menu">
+  <a class="atalho" href="index.html">Votos</a>
+  <a class="atalho ativa" href="urnas.html" aria-current="page">Urnas</a>
+  <span class="atalho-divisa" aria-hidden="true"></span>
   <button type="button" data-tela="mapa" class="ativa">Mapa</button>
   <button type="button" data-tela="hora">Horário</button>
   <button type="button" data-tela="lista">Seções que divergem</button>
