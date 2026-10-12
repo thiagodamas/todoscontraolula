@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Urnas · Rio Grande do Sul</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --ink: #1c1c1c;
+    --muted: #5c6570;
+    --line: #e3e6ea;
+    --paper: #f6f7f8;
+    --menu-altura: 52px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+  }
+  #mapa {
+    position: absolute;
+    top: var(--menu-altura);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 0;
+    width: auto;
+    height: auto;
+    background: #d9dee4;
+  }
+  .menu {
+    position: absolute;
+    z-index: 800;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: white;
+    border-bottom: 1px solid var(--line);
+  }
+  .menu button[data-tela] {
+    flex: none;
+    font: inherit;
+    font-size: 13px;
+    border: 1px solid var(--line);
+    background: white;
+    color: var(--ink);
+    border-radius: 99px;
+    padding: 6px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .menu button[data-tela].ativa { background: var(--ink); color: white; border-color: var(--ink); }
+  .menu-filtros { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .menu-filtros label { flex-direction: row; align-items: center; white-space: nowrap; }
+  .menu select, .menu input[type="search"] { min-width: 132px; font-size: 13px; padding: 5px 8px; }
+  .menu input[type="search"] { width: 148px; }
+  #dados {
+    display: none;
+    position: absolute;
+    z-index: 700;
+    top: var(--menu-altura);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    overflow: auto;
+    background: var(--paper);
+    padding: 18px 22px 48px;
+  }
+  body.tela-dados #dados { display: block; }
+  body.tela-dados .barra-topo, body.tela-dados aside { display: none !important; }
+  #dados h1 { margin: 0 0 6px; font-size: 22px; }
+  #dados table { background: white; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  #dados th { position: sticky; top: 0; background: white; }
+  #dados tbody tr { cursor: pointer; }
+  #dados tbody tr:hover { background: #f4f7fb; }
+  .barra-topo {
+    position: absolute;
+    z-index: 500;
+    top: calc(var(--menu-altura) + 12px);
+    left: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: min(780px, calc(100vw - 24px));
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.96);
+    border-radius: 12px;
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.16);
+  }
+  .titulo { flex: 1 1 220px; min-width: 180px; }
+  .titulo strong { display: block; font-size: 15px; }
+  .titulo span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+  .legenda { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0; font-size: 13px; flex: 1 1 100%; }
+  .legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 99px; margin-right: 4px; vertical-align: -1px; }
+  .filtro-mapa {
+    flex: 1 1 100%;
+    margin: 2px 0 0;
+    padding: 0;
+    border: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    align-items: center;
+  }
+  .filtro-mapa legend { font-size: 12px; color: var(--muted); padding: 0; }
+  .filtro-mapa label {
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .filtro-mapa input { margin: 0; }
+  aside {
+    display: none;
+    position: absolute;
+    z-index: 600;
+    top: calc(var(--menu-altura) + 12px);
+    right: 12px;
+    bottom: 12px;
+    width: min(440px, calc(100vw - 24px));
+    overflow: auto;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.16);
+    padding: 14px 14px 28px;
+  }
+  body.painel-aberto aside { display: block; }
+  .fechar {
+    position: sticky;
+    top: 0;
+    float: right;
+    z-index: 2;
+    font: inherit;
+    font-size: 12px;
+    border: 1px solid var(--line);
+    background: white;
+    border-radius: 99px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+  select, input[type="search"] {
+    font: inherit;
+    font-size: 14px;
+    padding: 7px 8px;
+    border: 1px solid #cfd5dc;
+    border-radius: 6px;
+    background: white;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child, th.texto, td.texto { text-align: left; }
+  #dados th.texto, #dados td.texto { white-space: normal; max-width: 320px; }
+  .nota { font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .aviso { background: #fff6e8; border: 1px solid #f0d7a8; border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.45; }
+  .numeros { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .numeros div { background: white; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; min-width: 120px; }
+  .numeros strong { display: block; font-size: 18px; }
+  .numeros span { color: var(--muted); font-size: 12px; }
+  .ficha h2 { margin: 0 28px 4px 0; font-size: 18px; }
+  .ficha p { margin: 6px 0; line-height: 1.4; }
+  .ficha table { margin-top: 8px; font-size: 12px; }
+  .ficha th, .ficha td { padding: 5px 4px; }
+  .ficha tbody tr { cursor: pointer; }
+  .ficha tr.ativa { background: #f4f0f6; }
+  .tag { display: inline-block; margin: 2px 4px 0 0; padding: 2px 7px; border-radius: 99px; background: #f3e8f5; font-size: 12px; }
+  @media (max-width: 700px) {
+    .barra-topo { right: 12px; max-width: none; }
+    aside { left: 12px; width: auto; }
+    .menu-filtros { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<nav class="menu" id="menu">
+  <button type="button" data-tela="mapa" class="ativa">Mapa</button>
+  <button type="button" data-tela="lista">Seções que divergem</button>
+  <div class="menu-filtros">
+    <label>Recorte
+      <select id="cidade">
+        <option value="">Todo o Rio Grande do Sul</option>
+        <option value="sul">Sul do estado</option>
+      </select>
+    </label>
+    <label>Buscar
+      <input id="busca" type="search" placeholder="Buscar">
+    </label>
+  </div>
+</nav>
+<div id="mapa"></div>
+<div class="barra-topo">
+  <div class="titulo">
+    <strong>Urnas no Rio Grande do Sul</strong>
+    <span id="frase">1º turno de 2026. Cada círculo é uma seção.</span>
+  </div>
+  <p class="legenda" id="legenda"></p>
+  <fieldset class="filtro-mapa">
+    <legend>No mapa</legend>
+    <label><input type="radio" name="filtro-mapa" value="ambas" checked> Situação e abstenção</label>
+    <label><input type="radio" name="filtro-mapa" value="sit"> Situação fora da média</label>
+    <label><input type="radio" name="filtro-mapa" value="abs"> Abstenção fora da média</label>
+    <label><input type="radio" name="filtro-mapa" value="todas"> Todas as seções</label>
+  </fieldset>
+  <p class="nota" id="nota-filtro"></p>
+</div>
+<aside id="ficha" class="ficha"></aside>
+<div id="dados">
+  <h1>Seções que divergem</h1>
+  <p class="nota" id="regra"></p>
+  <div class="numeros" id="numeros"></div>
+  <p class="aviso" id="aviso-lista"></p>
+  <p class="nota" id="resumo-lista"></p>
+  <table>
+    <thead>
+      <tr>
+        <th class="texto">Local</th>
+        <th>Seção</th>
+        <th>Aptos</th>
+        <th>Abstenção</th>
+        <th>Digital</th>
+        <th>Sem cadastro</th>
+        <th>Manual</th>
+        <th>Após 17h</th>
+        <th class="texto">O que foge</th>
+      </tr>
+    </thead>
+    <tbody id="corpo"></tbody>
+  </table>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="urnas.js"></script>
+<script>
+const U = window.URNAS;
+const SIT = 30;
+const CORES = { man: "#6b2d5b", sem: "#b86e00", apos: "#1d4e89", bio: "#0f766e", absAlta: "#8a4b08", absBaixa: "#0f766e", neutro: "#c5ced6" };
+const NOMES = { man: "liberação manual", sem: "sem cadastro", bio: "biometria", apos: "votos após 17h" };
+const cidadeEl = document.querySelector("#cidade");
+const buscaEl = document.querySelector("#busca");
+const mapa = L.map("mapa", { scrollWheelZoom: true, zoomControl: false, preferCanvas: true });
+L.control.zoom({ position: "bottomleft" }).addTo(mapa);
+const atr = "Tiles &copy; Esri";
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 18, maxNativeZoom: 16, attribution: atr
+}).addTo(mapa);
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 18, maxNativeZoom: 16
+}).addTo(mapa);
+const camada = L.layerGroup().addTo(mapa);
+const marcadores = new Map();
+let selecionado = null;
+let maxAptos = 1;
+
+function idDe(s) { return s.c + "|" + s.z + "|" + s.s; }
+function secaoPalavra(n) {
+  return n.toLocaleString("pt-BR") + (n === 1 ? " seção" : " seções");
+}
+function radio() { return document.querySelector("input[name=filtro-mapa]:checked").value; }
+function num(v) { return (v || 0).toLocaleString("pt-BR"); }
+function pct(parte, total) {
+  if (!total) return "–";
+  return (100 * parte / total).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
+}
+function ztxt(z) {
+  if (z == null) return "–";
+  const texto = Math.abs(z).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return (z > 0 ? "+" : "−") + texto;
+}
+function misturar(a, b, t) {
+  const ler = (cor) => [1, 3, 5].map((i) => parseInt(cor.slice(i, i + 2), 16));
+  const pa = ler(a);
+  const pb = ler(b);
+  return "#" + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
+function buscaTexto(s) {
+  return (s.c + " " + s.n + " " + s.b + " " + s.z + " " + s.s).toLocaleLowerCase("pt-BR");
+}
+function noRecorte(s) {
+  const cidade = cidadeEl.value;
+  if (cidade === "sul" && !s.sul) return false;
+  if (cidade && cidade !== "sul" && s.c !== cidade) return false;
+  const q = buscaEl.value.trim().toLocaleLowerCase("pt-BR");
+  return !q || buscaTexto(s).includes(q);
+}
+function noFiltro(s) {
+  if (!noRecorte(s) || s.lat == null) return false;
+  const modo = radio();
+  const sit = s.f & SIT;
+  const abs = s.f & 1;
+  if (modo === "ambas") return sit && abs;
+  if (modo === "sit") return Boolean(sit);
+  if (modo === "abs") return Boolean(abs);
+  return true;
+}
+function listaDivergente() {
+  return U.secoes.filter((s) => noRecorte(s) && (s.f & 1) && (s.f & SIT));
+}
+function fraseDe(s) {
+  const partes = [];
+  if (s.f & 1) partes.push((s.zabs > 0 ? "abstenção alta" : "abstenção baixa") + " (" + ztxt(s.zabs) + ")");
+  ["man", "sem", "apos", "bio"].forEach((nome) => {
+    const bit = { man: 2, sem: 4, apos: 16, bio: 8 }[nome];
+    const z = s["z" + nome];
+    if (!(s.f & bit) || z == null) return;
+    const lado = z > 0 ? "alta" : "baixa";
+    const rotulo = nome === "apos" ? (z > 0 ? "muitos votos após 17h" : "quase nenhum voto após 17h") : NOMES[nome] + " " + lado;
+    partes.push(rotulo + " (" + ztxt(z) + ")");
+  });
+  return partes.join("; ");
+}
+function corDe(s) {
+  const modo = radio();
+  if (modo === "todas" || modo === "abs") {
+    if (s.zabs == null) return CORES.neutro;
+    const t = Math.max(-4, Math.min(4, s.zabs)) / 4;
+    return t >= 0 ? misturar("#d7dee4", CORES.absAlta, t) : misturar("#d7dee4", CORES.absBaixa, -t);
+  }
+  let melhor = null;
+  [["man", 2, CORES.man], ["sem", 4, CORES.sem], ["apos", 16, CORES.apos], ["bio", 8, CORES.bio]].forEach(([nome, bit, cor]) => {
+    const z = s["z" + nome];
+    if ((s.f & bit) && z != null && (melhor == null || Math.abs(z) > Math.abs(melhor.z))) melhor = { z, cor };
+  });
+  return melhor ? melhor.cor : CORES.neutro;
+}
+function estilo(s) {
+  const cor = corDe(s);
+  const ativo = selecionado && idDe(selecionado) === idDe(s);
+  const contornoSituacao = (radio() === "todas" || radio() === "abs") && (s.f & SIT);
+  return {
+    radius: 4 + 12 * Math.sqrt((s.aptos || s.votos || 1) / maxAptos),
+    color: ativo ? "#111111" : (contornoSituacao ? "#6b2d5b" : cor),
+    weight: ativo ? 3 : (contornoSituacao ? 2 : 1),
+    fillColor: cor,
+    fillOpacity: 0.9
+  };
+}
+function pintarLegenda() {
+  const modo = radio();
+  const item = (cor, texto) => "<span><i style=\"background:" + cor + "\"></i>" + texto + "</span>";
+  if (modo === "todas" || modo === "abs") {
+    document.querySelector("#legenda").innerHTML = [
+      item(CORES.absBaixa, "abstenção baixa"),
+      item(CORES.neutro, "perto da média"),
+      item(CORES.absAlta, "abstenção alta"),
+      item("#6b2d5b", "contorno: uma situação também foge")
+    ].join("");
+    return;
+  }
+  document.querySelector("#legenda").innerHTML = [
+    item(CORES.man, "liberação manual"),
+    item(CORES.sem, "sem cadastro"),
+    item(CORES.apos, "após 17h"),
+    item(CORES.bio, "biometria")
+  ].join("");
+}
+function encaixarMapa() {
+  const altura = document.querySelector("#menu").offsetHeight;
+  document.documentElement.style.setProperty("--menu-altura", altura + "px");
+  mapa.invalidateSize();
+}
+function posicoes(lista) {
+  const grupos = new Map();
+  lista.forEach((s) => {
+    const chave = s.c + "|" + s.z + "|" + s.loc;
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(s);
+  });
+  const coords = new Map();
+  grupos.forEach((grupo) => {
+    grupo.forEach((s, i) => {
+      if (grupo.length === 1) {
+        coords.set(idDe(s), [s.lat, s.lon]);
+        return;
+      }
+      const ang = (i / grupo.length) * Math.PI * 2;
+      const passo = 0.00011 * (1 + Math.floor(i / 10));
+      const lat = s.lat + Math.cos(ang) * passo;
+      const lon = s.lon + Math.sin(ang) * passo / Math.cos(s.lat * Math.PI / 180);
+      coords.set(idDe(s), [lat, lon]);
+    });
+  });
+  return coords;
+}
+function desenhar(enquadrar) {
+  const visiveis = U.secoes.filter(noFiltro);
+  const coords = posicoes(visiveis);
+  camada.clearLayers();
+  marcadores.clear();
+  maxAptos = 1;
+  visiveis.forEach((s) => { if ((s.aptos || 0) > maxAptos) maxAptos = s.aptos; });
+  visiveis.forEach((s) => {
+    const ponto = coords.get(idDe(s));
+    const marker = L.circleMarker(ponto, estilo(s));
+    marker.on("click", () => selecionar(s, false));
+    marker.addTo(camada);
+    marcadores.set(idDe(s), marker);
+  });
+  const modo = radio();
+  const nomes = { ambas: "situação e abstenção", sit: "situação fora da média", abs: "abstenção fora da média", todas: "todas as seções" };
+  let extra = "";
+  if (!visiveis.length && modo === "ambas") {
+    const sit = U.secoes.filter((s) => noRecorte(s) && (s.f & SIT)).length;
+    const abs = U.secoes.filter((s) => noRecorte(s) && (s.f & 1)).length;
+    extra = " Nenhuma seção deste recorte foge das duas médias ao mesmo tempo. Há " +
+      secaoPalavra(sit) + " com situação fora da média e " +
+      secaoPalavra(abs) + " com abstenção fora da média.";
+  }
+  document.querySelector("#nota-filtro").textContent = secaoPalavra(visiveis.length) + " no mapa · " + nomes[modo] + "." + extra;
+  pintarLegenda();
+  if (!enquadrar) return;
+  if (!visiveis.length) {
+    mapa.setView([-30.8, -53.2], 7);
+    return;
+  }
+  const barra = document.querySelector(".barra-topo");
+  const topo = barra && barra.offsetParent ? barra.getBoundingClientRect().bottom + 16 : 140;
+  mapa.fitBounds(visiveis.map((s) => coords.get(idDe(s))), { paddingTopLeft: [24, topo], paddingBottomRight: [24, 24] });
+}
+function taxaMun(mun, nome) {
+  if (mun[nome] == null) return "–";
+  return pct(Math.round(mun[nome] * 1000), 1000);
+}
+function textoContexto(codigo, assunto) {
+  if (codigo === 1) return "Na " + assunto + ", só esta seção do local fica deste lado da média.";
+  if (codigo === 2) return "Na " + assunto + ", as outras seções deste local também ficam deste lado.";
+  if (codigo === 3) return "Na " + assunto + ", parte das seções deste local fica deste lado.";
+  return "";
+}
+function selecionar(s, voar) {
+  const antes = selecionado;
+  selecionado = s;
+  if (antes && marcadores.has(idDe(antes))) marcadores.get(idDe(antes)).setStyle(estilo(antes));
+  if (marcadores.has(idDe(s))) marcadores.get(idDe(s)).setStyle(estilo(s));
+  pintarFicha(s);
+  document.body.classList.add("painel-aberto");
+  if (voar && s.lat != null) mapa.setView([s.lat, s.lon], 16);
+}
+function pintarFicha(s) {
+  const irmas = U.secoes.filter((item) => item.c === s.c && item.z === s.z && item.loc === s.loc);
+  const mun = U.municipios[s.c] || {};
+  const linhas = irmas.map((item) => {
+    const ativa = idDe(item) === idDe(s) ? " class=\"ativa\"" : "";
+    return "<tr" + ativa + " data-id=\"" + idDe(item) + "\">" +
+      "<td class=\"texto\">" + item.s + "</td>" +
+      "<td>" + num(item.aptos) + "</td>" +
+      "<td>" + pct(item.falt, item.aptos) + "</td>" +
+      "<td>" + pct(item.bio, item.votos) + "</td>" +
+      "<td>" + pct(item.sem, item.votos) + "</td>" +
+      "<td>" + pct(item.man, item.cad) + "</td>" +
+      "<td>" + pct(item.apos, item.votos) + "</td></tr>";
+  }).join("");
+  const base = mun.base_abs === "estado" ? "do estado" : "do município";
+  const notas = [];
+  if (s.f & 1) notas.push(textoContexto(s.ca, "abstenção"));
+  if (s.f & SIT) notas.push(textoContexto(s.cs, "situação"));
+  if (s.seq >= 8) notas.push("Maior sequência de liberações manuais seguidas: " + s.seq + ".");
+  if (s.dif > 5) notas.push("O log registra " + num(s.votos) + " votos e o boletim registra " + num(s.comp) + ". Esta seção fica de fora da comparação de habilitação e de horário.");
+  if (s.lat == null) notas.push("Esta seção não tem coordenada no cadastro e fica fora do mapa.");
+  document.querySelector("#ficha").innerHTML =
+    "<button type=\"button\" class=\"fechar\" id=\"fechar\">Fechar</button>" +
+    "<h2>" + (s.n || "Seção " + s.s) + "</h2>" +
+    "<p class=\"nota\">" + s.c + " · zona " + s.z + " · seção " + s.s + (s.b ? " · " + s.b : "") + "</p>" +
+    "<p class=\"nota\">" + (s.e || "") + (s.apx ? " Coordenada aproximada." : "") + "</p>" +
+    "<p>" + fraseDe(s) + "</p>" +
+    "<p class=\"nota\">No município, a abstenção é " + taxaMun(mun, "abs") +
+      ", a digital " + taxaMun(mun, "bio") +
+      ", sem cadastro " + taxaMun(mun, "sem") +
+      ", a liberação manual " + taxaMun(mun, "man") +
+      " e os votos após 17h " + taxaMun(mun, "apos") +
+      ". A comparação da abstenção usa a taxa " + base + ".</p>" +
+    notas.filter(Boolean).map((t) => "<p>" + t + "</p>").join("") +
+    "<table><thead><tr><th class=\"texto\">Seção</th><th>Aptos</th><th>Abst.</th><th>Digital</th><th>S/cad.</th><th>Manual</th><th>17h</th></tr></thead><tbody>" +
+    linhas + "</tbody></table>";
+  document.querySelector("#fechar").onclick = () => {
+    selecionado = null;
+    document.body.classList.remove("painel-aberto");
+    desenhar(false);
+  };
+  document.querySelectorAll("#ficha tbody tr").forEach((tr) => {
+    tr.onclick = () => {
+      const alvo = irmas.find((item) => idDe(item) === tr.dataset.id);
+      if (alvo) selecionar(alvo, true);
+    };
+  });
+}
+function pintarNumeros() {
+  const t = U.totais;
+  const bloco = (valor, rotulo) => "<div><strong>" + valor + "</strong><span>" + rotulo + "</span></div>";
+  document.querySelector("#numeros").innerHTML = [
+    bloco(pct(t.bio, t.votos), "digital"),
+    bloco(pct(t.sem, t.votos), "sem cadastro"),
+    bloco(pct(t.man, t.votos), "liberação manual"),
+    bloco(pct(t.apos, t.votos), "votos após 17h"),
+    bloco(pct(t.faltaram, t.aptos), "abstenção")
+  ].join("");
+}
+function pintarLista() {
+  const linhas = listaDivergente().sort((a, b) => {
+    const sa = Math.abs(a.zabs || 0) + Math.abs(a.zsmax || 0);
+    const sb = Math.abs(b.zabs || 0) + Math.abs(b.zsmax || 0);
+    return sb - sa || b.aptos - a.aptos;
+  });
+  document.querySelector("#resumo-lista").textContent = secaoPalavra(linhas.length) +
+    " neste recorte. No estado, " + secaoPalavra(U.totais.divergem) +
+    " fogem da média da abstenção e, ao mesmo tempo, de pelo menos uma situação.";
+  const semCoord = linhas.filter((s) => s.lat == null).length;
+  document.querySelector("#aviso-lista").hidden = semCoord === 0;
+  document.querySelector("#aviso-lista").textContent = semCoord
+    ? semCoord.toLocaleString("pt-BR") + " seções desta lista não têm coordenada e ficam fora do mapa."
+    : "";
+  document.querySelector("#corpo").innerHTML = linhas.map((s) =>
+    "<tr data-id=\"" + idDe(s) + "\">" +
+    "<td class=\"texto\">" + s.c + " · " + (s.n || "sem nome") + "</td>" +
+    "<td>" + s.z + " / " + s.s + "</td>" +
+    "<td>" + num(s.aptos) + "</td>" +
+    "<td>" + pct(s.falt, s.aptos) + " <span class=\"nota\">" + ztxt(s.zabs) + "</span></td>" +
+    "<td>" + pct(s.bio, s.votos) + "</td>" +
+    "<td>" + pct(s.sem, s.votos) + "</td>" +
+    "<td>" + pct(s.man, s.cad) + "</td>" +
+    "<td>" + pct(s.apos, s.votos) + "</td>" +
+    "<td class=\"texto\">" + fraseDe(s) + "</td></tr>"
+  ).join("");
+  document.querySelectorAll("#corpo tr").forEach((tr) => {
+    tr.onclick = () => {
+      const s = U.secoes.find((item) => idDe(item) === tr.dataset.id);
+      mostrarTela("mapa");
+      selecionar(s, true);
+      desenhar(false);
+    };
+  });
+}
+function mostrarTela(nome) {
+  document.body.classList.toggle("tela-dados", nome === "lista");
+  document.querySelectorAll("#menu button[data-tela]").forEach((botao) => {
+    botao.classList.toggle("ativa", botao.dataset.tela === nome);
+  });
+  if (nome === "lista") pintarLista();
+  else {
+    encaixarMapa();
+    desenhar(false);
+  }
+}
+function preencherCidades() {
+  const cidades = [...new Set(U.secoes.map((s) => s.c))].sort((a, b) => a.localeCompare(b, "pt"));
+  cidades.forEach((cidade) => {
+    const option = document.createElement("option");
+    option.value = cidade;
+    option.textContent = cidade;
+    cidadeEl.appendChild(option);
+  });
+}
+document.querySelector("#regra").textContent =
+  "Uma seção entra nesta lista quando o desvio absoluto chega a 3 ou mais, ao mesmo tempo, na abstenção e em pelo menos uma situação: digital reconhecida, eleitor sem cadastro biométrico, liberação manual pelo mesário ou voto computado depois das 17h. A comparação é com as outras seções do mesmo município e leva em conta o tamanho da seção. Município com menos de 8 seções comparáveis usa a taxa do estado. Entram seções com pelo menos 50 aptos na abstenção, 80 votos no log nas outras taxas e 40 eleitores com digital cadastrada na liberação manual. Seções em que o log não fecha com o boletim, com diferença acima de 5 votos, ficam de fora das taxas de habilitação e de horário. Votar depois das 17h vale para quem já estava na fila. A liberação pelo mesário é o caminho previsto quando a digital cadastrada não é reconhecida em quatro tentativas. A lista mede distância da média.";
+preencherCidades();
+pintarNumeros();
+document.querySelectorAll("#menu button[data-tela]").forEach((botao) => {
+  botao.onclick = () => mostrarTela(botao.dataset.tela);
+});
+document.querySelectorAll("input[name=filtro-mapa]").forEach((input) => {
+  input.onchange = () => desenhar(true);
+});
+cidadeEl.onchange = () => {
+  if (document.body.classList.contains("tela-dados")) pintarLista();
+  desenhar(true);
+};
+buscaEl.oninput = () => {
+  if (document.body.classList.contains("tela-dados")) pintarLista();
+  desenhar(true);
+};
+window.addEventListener("resize", encaixarMapa);
+encaixarMapa();
+desenhar(true);
+</script>
+</body>
+</html>
