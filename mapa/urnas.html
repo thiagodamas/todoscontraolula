@@ -129,6 +129,9 @@
   #dados h1, #horario h1 { margin: 0 0 6px; font-size: 22px; }
   #dados table, #horario table { background: white; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   #dados th, #horario th { position: sticky; top: 0; background: white; }
+  #dados th.ordena { cursor: pointer; user-select: none; }
+  #dados th.ordem-asc::after { content: " ↑"; }
+  #dados th.ordem-desc::after { content: " ↓"; }
   #dados tbody tr { cursor: pointer; }
   #dados tbody tr:hover { background: #f4f7fb; }
   .barra-topo {
@@ -230,6 +233,7 @@
     aside { left: 12px; width: auto; }
     .menu-filtros { margin-left: 0; }
     .col-pct { display: none; }
+    #dados th.texto, #dados td.texto { max-width: 140px; }
     #horario th, #horario td, .ficha .tabela-hora th, .ficha .tabela-hora td { padding: 4px 3px; font-size: 11px; }
   }
 </style>
@@ -240,6 +244,7 @@
   <a class="atalho ativa" href="urnas.html" aria-current="page">Urnas</a>
   <span class="atalho-divisa" aria-hidden="true"></span>
   <button type="button" data-tela="mapa" class="ativa">Mapa</button>
+  <button type="button" data-tela="baixa">Abstenção baixa</button>
   <button type="button" data-tela="hora">Horário</button>
   <button type="button" data-tela="lista">Seções que divergem</button>
   <div class="menu-filtros">
@@ -263,7 +268,8 @@
   <p class="legenda" id="legenda"></p>
   <fieldset class="filtro-mapa">
     <legend>No mapa</legend>
-    <label><input type="radio" name="filtro-mapa" value="ambas" checked> Situação e abstenção</label>
+    <label><input type="radio" name="filtro-mapa" value="baixa" checked> Abstenção baixa</label>
+    <label><input type="radio" name="filtro-mapa" value="ambas"> Situação e abstenção</label>
     <label><input type="radio" name="filtro-mapa" value="sit"> Situação fora da média</label>
     <label><input type="radio" name="filtro-mapa" value="abs"> Abstenção fora da média</label>
     <label><input type="radio" name="filtro-mapa" value="todas"> Todas as seções</label>
@@ -293,7 +299,7 @@
   </table>
 </div>
 <div id="dados">
-  <h1>Seções que divergem</h1>
+  <h1 id="titulo-lista">Seções que divergem</h1>
   <p class="nota" id="regra"></p>
   <div class="numeros" id="numeros"></div>
   <p class="aviso" id="aviso-lista"></p>
@@ -337,6 +343,8 @@ const camada = L.layerGroup().addTo(mapa);
 const marcadores = new Map();
 let selecionado = null;
 let maxAptos = 1;
+let telaAtual = "mapa";
+let ordemLista = null;
 
 function idDe(s) { return s.c + "|" + s.z + "|" + s.s; }
 function secaoPalavra(n) {
@@ -374,13 +382,71 @@ function noFiltro(s) {
   const modo = radio();
   const sit = s.f & SIT;
   const abs = s.f & 1;
+  if (modo === "baixa") return abs && s.zabs < 0;
   if (modo === "ambas") return sit && abs;
   if (modo === "sit") return Boolean(sit);
   if (modo === "abs") return Boolean(abs);
   return true;
 }
+function ehBaixa(s) {
+  return (s.f & 1) && s.zabs < 0;
+}
 function listaDivergente() {
   return U.secoes.filter((s) => noRecorte(s) && (s.f & 1) && (s.f & SIT));
+}
+function listaBaixa() {
+  return U.secoes.filter((s) => noRecorte(s) && ehBaixa(s));
+}
+function valorVazio(valor) {
+  return valor == null || valor === "" || (typeof valor === "number" && Number.isNaN(valor));
+}
+function ordenarPar(a, b, direcao) {
+  if (valorVazio(a) && valorVazio(b)) return 0;
+  if (valorVazio(a)) return 1;
+  if (valorVazio(b)) return -1;
+  if (typeof a === "number" && typeof b === "number") return direcao * (a - b);
+  return direcao * String(a).localeCompare(String(b), "pt", { sensitivity: "base", numeric: true });
+}
+function taxa(parte, total) {
+  if (!total) return null;
+  return parte / total;
+}
+function chaveDivergente(s) {
+  return [
+    s.c + " · " + (s.n || "sem nome"),
+    String(s.z).padStart(4, "0") + "/" + String(s.s).padStart(5, "0"),
+    s.aptos,
+    taxa(s.falt, s.aptos),
+    taxa(s.bio, s.votos),
+    taxa(s.sem, s.votos),
+    taxa(s.man, s.cad),
+    taxa(s.apos, s.votos),
+    fraseDe(s)
+  ];
+}
+function direcaoInicialLista(linhas, coluna) {
+  for (let i = 0; i < linhas.length; i += 1) {
+    const valor = chaveDivergente(linhas[i])[coluna];
+    if (valorVazio(valor)) continue;
+    return typeof valor === "number" ? -1 : 1;
+  }
+  return 1;
+}
+function marcarOrdemLista() {
+  document.querySelectorAll("#dados thead th").forEach((th, indice) => {
+    const ativo = telaAtual === "lista";
+    th.classList.toggle("ordena", ativo);
+    th.classList.remove("ordem-asc", "ordem-desc");
+    if (!ativo || !ordemLista || ordemLista.coluna !== indice) {
+      th.removeAttribute("aria-sort");
+      th.title = ativo ? "Ordenar por esta coluna" : "";
+      return;
+    }
+    const desc = ordemLista.direcao < 0;
+    th.classList.add(desc ? "ordem-desc" : "ordem-asc");
+    th.setAttribute("aria-sort", desc ? "descending" : "ascending");
+    th.title = "Ordenar por esta coluna";
+  });
 }
 function fraseDe(s) {
   const partes = [];
@@ -397,7 +463,7 @@ function fraseDe(s) {
 }
 function corDe(s) {
   const modo = radio();
-  if (modo === "todas" || modo === "abs") {
+  if (modo === "baixa" || modo === "todas" || modo === "abs") {
     if (s.zabs == null) return CORES.neutro;
     const t = Math.max(-4, Math.min(4, s.zabs)) / 4;
     return t >= 0 ? misturar("#d7dee4", CORES.absAlta, t) : misturar("#d7dee4", CORES.absBaixa, -t);
@@ -412,7 +478,7 @@ function corDe(s) {
 function estilo(s) {
   const cor = corDe(s);
   const ativo = selecionado && idDe(selecionado) === idDe(s);
-  const contornoSituacao = (radio() === "todas" || radio() === "abs") && (s.f & SIT);
+  const contornoSituacao = (radio() === "baixa" || radio() === "todas" || radio() === "abs") && (s.f & SIT);
   return {
     radius: 4 + 12 * Math.sqrt((s.aptos || s.votos || 1) / maxAptos),
     color: ativo ? "#111111" : (contornoSituacao ? "#6b2d5b" : cor),
@@ -424,6 +490,14 @@ function estilo(s) {
 function pintarLegenda() {
   const modo = radio();
   const item = (cor, texto) => "<span><i style=\"background:" + cor + "\"></i>" + texto + "</span>";
+  if (modo === "baixa") {
+    document.querySelector("#legenda").innerHTML = [
+      item(CORES.absBaixa, "mais abaixo da média"),
+      item(misturar("#d7dee4", CORES.absBaixa, 0.75), "no limite do desvio"),
+      item("#6b2d5b", "contorno: uma situação também foge")
+    ].join("");
+    return;
+  }
   if (modo === "todas" || modo === "abs") {
     document.querySelector("#legenda").innerHTML = [
       item(CORES.absBaixa, "abstenção baixa"),
@@ -483,8 +557,14 @@ function desenhar(enquadrar) {
     marcadores.set(idDe(s), marker);
   });
   const modo = radio();
-  const nomes = { ambas: "situação e abstenção", sit: "situação fora da média", abs: "abstenção fora da média", todas: "todas as seções" };
+  const nomes = { baixa: "abstenção baixa", ambas: "situação e abstenção", sit: "situação fora da média", abs: "abstenção fora da média", todas: "todas as seções" };
+  document.querySelector("#frase").textContent = modo === "baixa"
+    ? "1º turno de 2026. Cada círculo é uma seção com abstenção muito abaixo da média do município."
+    : "1º turno de 2026. Cada círculo é uma seção.";
   let extra = "";
+  if (!visiveis.length && modo === "baixa") {
+    extra = " Nenhuma seção deste recorte tem abstenção baixa nesse limite.";
+  }
   if (!visiveis.length && modo === "ambas") {
     const sit = U.secoes.filter((s) => noRecorte(s) && (s.f & SIT)).length;
     const abs = U.secoes.filter((s) => noRecorte(s) && (s.f & 1)).length;
@@ -583,25 +663,38 @@ function pintarNumeros() {
   ].join("");
 }
 function pintarLista() {
-  const linhas = listaDivergente().sort((a, b) => {
+  const baixa = telaAtual === "baixa";
+  const linhas = (baixa ? listaBaixa() : listaDivergente()).sort((a, b) => {
+    if (!baixa && ordemLista) {
+      return ordenarPar(chaveDivergente(a)[ordemLista.coluna], chaveDivergente(b)[ordemLista.coluna], ordemLista.direcao);
+    }
+    if (baixa) return a.zabs - b.zabs || b.aptos - a.aptos;
     const sa = Math.abs(a.zabs || 0) + Math.abs(a.zsmax || 0);
     const sb = Math.abs(b.zabs || 0) + Math.abs(b.zsmax || 0);
     return sb - sa || b.aptos - a.aptos;
   });
-  document.querySelector("#resumo-lista").textContent = secaoPalavra(linhas.length) +
-    " neste recorte. No estado, " + secaoPalavra(U.totais.divergem) +
-    " fogem da média da abstenção e, ao mesmo tempo, de pelo menos uma situação.";
+  document.querySelector("#titulo-lista").textContent = baixa ? "Abstenção baixa" : "Seções que divergem";
+  document.querySelector("#regra").textContent = baixa
+    ? "Abstenção baixa é a seção cuja taxa de faltosos fica 3 desvios ou mais abaixo da média das outras seções do município. Esse afastamento é o indicador desta tela: o comparecimento ficou fora do padrão local. A conta leva em conta o tamanho da seção e exige pelo menos 50 aptos. Município com menos de 8 seções comparáveis usa a taxa do estado. A ordem é da maior distância abaixo da média para a menor. A ficha mostra o horário dos votos e se a mesma urna também foge na digital, no sem cadastro, na liberação manual ou nos votos depois das 17h."
+    : "Uma seção entra nesta lista quando o desvio absoluto chega a 3 ou mais, ao mesmo tempo, na abstenção e em pelo menos uma situação: digital reconhecida, eleitor sem cadastro biométrico, liberação manual pelo mesário ou voto computado depois das 17h. A comparação é com as outras seções do mesmo município e leva em conta o tamanho da seção. Município com menos de 8 seções comparáveis usa a taxa do estado. Entram seções com pelo menos 50 aptos na abstenção, 80 votos no log nas outras taxas e 40 eleitores com digital cadastrada na liberação manual. Seções em que o log não fecha com o boletim, com diferença acima de 5 votos, ficam de fora das taxas de habilitação e de horário. Votar depois das 17h vale para quem já estava na fila. A liberação pelo mesário é o caminho previsto quando a digital cadastrada não é reconhecida em quatro tentativas. A lista mede distância da média.";
+  document.querySelector("#resumo-lista").textContent = baixa
+    ? secaoPalavra(linhas.length) + " neste recorte. No estado, " + secaoPalavra(U.secoes.filter(ehBaixa).length) +
+      " ficam com abstenção muito abaixo da média da comparação."
+    : secaoPalavra(linhas.length) + " neste recorte. No estado, " + secaoPalavra(U.totais.divergem) +
+      " fogem da média da abstenção e, ao mesmo tempo, de pelo menos uma situação.";
   const semCoord = linhas.filter((s) => s.lat == null).length;
   document.querySelector("#aviso-lista").hidden = semCoord === 0;
   document.querySelector("#aviso-lista").textContent = semCoord
     ? semCoord.toLocaleString("pt-BR") + " seções desta lista não têm coordenada e ficam fora do mapa."
     : "";
+  marcarOrdemLista();
   document.querySelector("#corpo").innerHTML = linhas.map((s) =>
     "<tr data-id=\"" + idDe(s) + "\">" +
     "<td class=\"texto\">" + s.c + " · " + (s.n || "sem nome") + "</td>" +
     "<td>" + s.z + " / " + s.s + "</td>" +
     "<td>" + num(s.aptos) + "</td>" +
-    "<td>" + pct(s.falt, s.aptos) + " <span class=\"nota\">" + ztxt(s.zabs) + "</span></td>" +
+    "<td>" + pct(s.falt, s.aptos) + " <span class=\"nota\">" + ztxt(s.zabs) +
+      (baixa ? " · município " + taxaMun(U.municipios[s.c] || {}, "abs") : "") + "</span></td>" +
     "<td>" + pct(s.bio, s.votos) + "</td>" +
     "<td>" + pct(s.sem, s.votos) + "</td>" +
     "<td>" + pct(s.man, s.cad) + "</td>" +
@@ -611,9 +704,10 @@ function pintarLista() {
   document.querySelectorAll("#corpo tr").forEach((tr) => {
     tr.onclick = () => {
       const s = U.secoes.find((item) => idDe(item) === tr.dataset.id);
+      const destino = telaAtual === "baixa" ? "baixa" : "ambas";
+      document.querySelector("input[name=filtro-mapa][value=\"" + destino + "\"]").checked = true;
       mostrarTela("mapa");
       selecionar(s, true);
-      desenhar(false);
     };
   });
 }
@@ -745,12 +839,13 @@ function pintarHistograma() {
   document.querySelector("#hora-resumo").textContent = textoResumo(grafico, "Nenhuma seção deste recorte tem horário de voto no log.");
 }
 function mostrarTela(nome) {
-  document.body.classList.toggle("tela-dados", nome === "lista");
+  telaAtual = nome;
+  document.body.classList.toggle("tela-dados", nome === "lista" || nome === "baixa");
   document.body.classList.toggle("tela-hora", nome === "hora");
   document.querySelectorAll("#menu button[data-tela]").forEach((botao) => {
     botao.classList.toggle("ativa", botao.dataset.tela === nome);
   });
-  if (nome === "lista") pintarLista();
+  if (nome === "lista" || nome === "baixa") pintarLista();
   else if (nome === "hora") pintarHistograma();
   else {
     encaixarMapa();
@@ -766,12 +861,19 @@ function preencherCidades() {
     cidadeEl.appendChild(option);
   });
 }
-document.querySelector("#regra").textContent =
-  "Uma seção entra nesta lista quando o desvio absoluto chega a 3 ou mais, ao mesmo tempo, na abstenção e em pelo menos uma situação: digital reconhecida, eleitor sem cadastro biométrico, liberação manual pelo mesário ou voto computado depois das 17h. A comparação é com as outras seções do mesmo município e leva em conta o tamanho da seção. Município com menos de 8 seções comparáveis usa a taxa do estado. Entram seções com pelo menos 50 aptos na abstenção, 80 votos no log nas outras taxas e 40 eleitores com digital cadastrada na liberação manual. Seções em que o log não fecha com o boletim, com diferença acima de 5 votos, ficam de fora das taxas de habilitação e de horário. Votar depois das 17h vale para quem já estava na fila. A liberação pelo mesário é o caminho previsto quando a digital cadastrada não é reconhecida em quatro tentativas. A lista mede distância da média.";
 preencherCidades();
 pintarNumeros();
 document.querySelectorAll("#menu button[data-tela]").forEach((botao) => {
   botao.onclick = () => mostrarTela(botao.dataset.tela);
+});
+document.querySelectorAll("#dados thead th").forEach((th, indice) => {
+  th.addEventListener("click", () => {
+    if (telaAtual !== "lista") return;
+    const linhas = listaDivergente();
+    if (ordemLista && ordemLista.coluna === indice) ordemLista.direcao *= -1;
+    else ordemLista = { coluna: indice, direcao: direcaoInicialLista(linhas, indice) };
+    pintarLista();
+  });
 });
 document.querySelectorAll("input[name=filtro-mapa]").forEach((input) => {
   input.onchange = () => desenhar(true);
