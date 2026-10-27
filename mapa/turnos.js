@@ -22,6 +22,7 @@ let selecionado = null;
 let tela = "mapa";
 let linhasRanking = [];
 let ordemRanking = null;
+let cacheMudanca = {};
 
 function turno(qual) {
   return cicloEl.value + "-" + qual;
@@ -113,6 +114,81 @@ function saldoDe(t1, t2) {
 }
 function comparavel(t1, t2) {
   return t1.duelo >= 80 && t2.duelo >= 80 && t1.lulaNoDuelo != null && t2.lulaNoDuelo != null;
+}
+function baseAbs(conta) {
+  if (!conta.aptos || conta.aptos < 50 || conta.abstencao == null || conta.abstencao < 0) return null;
+  return { k: conta.abstencao, n: conta.aptos };
+}
+function estimarMudanca(linhas) {
+  let k1 = 0;
+  let n1 = 0;
+  let k2 = 0;
+  let n2 = 0;
+  linhas.forEach((item) => {
+    k1 += item.k1;
+    n1 += item.n1;
+    k2 += item.k2;
+    n2 += item.n2;
+  });
+  const p1 = n1 ? k1 / n1 : 0;
+  const p2 = n2 ? k2 / n2 : 0;
+  const shift = p2 - p1;
+  if (linhas.length < 2) return { p1, p2, shift, tau2: 0 };
+  let variancia = 0;
+  linhas.forEach((item) => {
+    const delta = item.k2 / item.n2 - item.k1 / item.n1 - shift;
+    variancia += delta * delta;
+  });
+  variancia /= linhas.length - 1;
+  let binomial = 0;
+  linhas.forEach((item) => {
+    binomial += p1 * (1 - p1) / item.n1 + p2 * (1 - p2) / item.n2;
+  });
+  binomial /= linhas.length;
+  return { p1, p2, shift, tau2: Math.max(0, variancia - binomial) };
+}
+function zMudanca(item, grupo) {
+  const observado = item.k2 / item.n2;
+  const esperado = item.k1 / item.n1 + grupo.shift;
+  const den = Math.sqrt(Math.max(grupo.p2 * (1 - grupo.p2) / item.n2 + grupo.p1 * (1 - grupo.p1) / item.n1 + grupo.tau2, 0));
+  if (den < 1e-9) return 0;
+  return Math.max(-99, Math.min(99, (observado - esperado) / den));
+}
+function indiceMudanca() {
+  const ciclo = cicloEl.value;
+  if (cacheMudanca[ciclo]) return cacheMudanca[ciclo];
+  const elegiveis = [];
+  D.locais.forEach((local) => {
+    const a = baseAbs(contaDe(local, turno(1)));
+    const b = baseAbs(contaDe(local, turno(2)));
+    if (!a || !b) return;
+    elegiveis.push({ local, k1: a.k, n1: a.n, k2: b.k, n2: b.n });
+  });
+  const porCidade = new Map();
+  elegiveis.forEach((item) => {
+    if (!porCidade.has(item.local.cidade)) porCidade.set(item.local.cidade, []);
+    porCidade.get(item.local.cidade).push(item);
+  });
+  const estado = estimarMudanca(elegiveis);
+  const porId = new Map();
+  porCidade.forEach((lista) => {
+    const grupo = lista.length >= 8 ? estimarMudanca(lista) : estado;
+    const base = lista.length >= 8 ? "município" : "estado";
+    lista.forEach((item) => {
+      const z = zMudanca(item, grupo);
+      const mudanca = item.k2 / item.n2 - item.k1 / item.n1;
+      const diferenca = mudanca - grupo.shift;
+      const pessoas = diferenca * item.n2;
+      porId.set(item.local.id, {
+        local: item.local,
+        k1: item.k1, n1: item.n1, k2: item.k2, n2: item.n2,
+        p1: item.k1 / item.n1, p2: item.k2 / item.n2,
+        mudanca, shift: grupo.shift, diferenca, pessoas, z, base
+      });
+    });
+  });
+  cacheMudanca[ciclo] = { porId, comparado: porId.size };
+  return cacheMudanca[ciclo];
 }
 function sobraDe(t1) {
   return t1.outros + t1.branco + t1.nulo + (t1.abstencao == null ? 0 : Math.max(0, t1.abstencao));
@@ -297,8 +373,38 @@ function mostrarFicha(local) {
         (folga == null ? "–" : numero(folga)) + ". A rejeição revelada de Lula é " + percentual(t2.adv, t2.aptos) +
         " dos aptos. A de " + nome + " é " + percentual(t2.lula, t2.aptos) + ".") + "</p>" +
     "<h2>Outros candidatos no 1º turno</h2>" + listaOutros +
+    blocoAbstencao(local) +
     "<h2>Seções neste local</h2><div class='rola'><table><thead><tr><th>Seção</th><th class='lula'>Lula 1º</th><th class='adv'>" + escapar(nomeCurto()) +
     " 1º</th><th class='lula'>Lula 2º</th><th class='adv'>" + escapar(nomeCurto()) + " 2º</th><th class='lula'>Saldo Lula</th><th class='adv'>Saldo " + escapar(nomeCurto()) + "</th></tr></thead><tbody>" + secoes + "</tbody></table></div>";
+}
+function blocoAbstencao(local) {
+  const item = indiceMudanca().porId.get(local.id);
+  if (!item) {
+    return "<h2>Abstenção entre turnos</h2><p class='nota'>Este local fica de fora da comparação. Falta um dos turnos, há menos de 50 aptos, ou o comparecimento passou dos aptos.</p>";
+  }
+  const sentido = item.z > 0
+    ? "Faltou mais do que o padrão do " + item.base + "."
+    : item.z < 0
+      ? "Compareceu mais do que o padrão do " + item.base + "."
+      : "A mudança acompanhou o " + item.base + ".";
+  const pessoas = Math.round(Math.abs(item.pessoas));
+  const frasePessoas = pessoas
+    ? (item.pessoas > 0
+      ? " São cerca de " + numero(pessoas) + " abstenções a mais do que se este local tivesse seguido o padrão."
+      : " São cerca de " + numero(pessoas) + " abstenções a menos do que se este local tivesse seguido o padrão.")
+    : "";
+  const secoes = local.secoes.map((secao) => {
+    const a = contaDe(secao, turno(1));
+    const b = contaDe(secao, turno(2));
+    if (!a.aptos || !b.aptos || a.abstencao == null || b.abstencao == null || a.abstencao < 0 || b.abstencao < 0) return "";
+    return "<tr class='estatica'><td>" + secao.secao + "</td><td>" + percentual(a.abstencao, a.aptos) +
+      "</td><td>" + percentual(b.abstencao, b.aptos) + "</td><td>" + pontosTexto(b.abstencao / b.aptos - a.abstencao / a.aptos) + "</td></tr>";
+  }).join("");
+  return "<h2>Abstenção entre turnos</h2><p class='nota'>A abstenção foi de " + percentual(item.k1, item.n1) + " para " +
+    percentual(item.k2, item.n2) + " (" + pontosTexto(item.mudanca) + "). No " + item.base + ", a mudança foi " +
+    pontosTexto(item.shift) + " A diferença é " + pontosTexto(item.diferenca) + " A distância é " + casaDecimal(item.z) +
+    ". " + sentido + frasePessoas + "</p>" +
+    (secoes ? "<div class='rola'><table><thead><tr><th>Seção</th><th>Abstenção 1º</th><th>Abstenção 2º</th><th>Mudança</th></tr></thead><tbody>" + secoes + "</tbody></table></div>" : "");
 }
 function pintarBairros() {
   const porMunicipio = cidadeEl.value === "sul" || !cidadeEl.value;
@@ -443,6 +549,56 @@ const listas = {
         numero(item.t2.lula) + "</td><td class='lula'>" + numero(item.t2.aptos - item.t2.adv) + "</td><td class='adv'>" +
         numero(item.t2.adv) + "</td><td class='adv'>" + numero(item.t2.aptos - item.t2.lula) + "</td><td>" + numero(folga) + "</td>";
     }
+  },
+  abstencao: {
+    titulo: "Abstenção entre turnos",
+    texto: "A mudança é a abstenção do 2º turno menos a do 1º, em pontos percentuais dos aptos. O padrão é essa mesma mudança no município. A diferença é a mudança do local menos o padrão. A distância mede essa diferença em desvios, descontando o que o tamanho do local explica. Município com menos de 8 locais comparáveis usa o padrão do estado. Entram locais com pelo menos 50 aptos em cada turno e com o comparecimento dentro dos aptos. A lista começa por quem mais se afastou do padrão. Distância positiva: faltou mais. Distância negativa: compareceu mais. Pessoas é a diferença aplicada aos aptos do 2º turno.",
+    itens() {
+      const indice = indiceMudanca();
+      const vistos = new Set();
+      return locaisDoRecorte().map((local) => indice.porId.get(local.id)).filter((item) => {
+        if (!item || vistos.has(item.local.id)) return false;
+        vistos.add(item.local.id);
+        return true;
+      }).sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+    },
+    contagem(itens) {
+      const indice = indiceMudanca();
+      let k1 = 0;
+      let n1 = 0;
+      let k2 = 0;
+      let n2 = 0;
+      let afastados = 0;
+      itens.forEach((item) => {
+        k1 += item.k1;
+        n1 += item.n1;
+        k2 += item.k2;
+        n2 += item.n2;
+        if (Math.abs(item.z) >= 2) afastados += 1;
+      });
+      if (!itens.length) {
+        return "Nenhum local deste recorte entra na comparação. É preciso ter os dois turnos, pelo menos 50 aptos em cada um e o comparecimento dentro dos aptos.";
+      }
+      const taxas = " A abstenção foi de " + percentual(k1, n1) + " para " + percentual(k2, n2) + " (" + pontosTexto(k2 / n2 - k1 / n1) + ").";
+      const nota = afastados
+        ? (afastados === 1 ? " 1 local passa" : " " + numero(afastados) + " locais passam") + " de 2 desvios."
+        : " Nenhum local passa de 2 desvios.";
+      return numero(itens.length) + " locais comparados neste recorte, entre " + numero(indice.comparado) + " do estado." +
+        taxas + " A lista começa por quem mais se afastou da mudança do padrão." + nota +
+        " Clique numa linha para abrir o local no mapa. Clique no título da coluna para ordenar.";
+    },
+    colunas() {
+      return ["Local", "Município", "Bairro", "Abstenção 1º", "Abstenção 2º", "Mudança", "Padrão", "Diferença", "Pessoas", "Distância"];
+    },
+    chave(item) {
+      return [item.local.nome, item.local.cidade, item.local.bairro, item.p1, item.p2, item.mudanca, item.shift, item.diferenca, item.pessoas, item.z];
+    },
+    linha(item) {
+      return celulaLocal(item) + "<td>" + percentual(item.k1, item.n1) + "</td><td>" + percentual(item.k2, item.n2) +
+        "</td><td>" + pontosTexto(item.mudanca) + "</td><td>" + pontosTexto(item.shift) +
+        "</td><td>" + pontosTexto(item.diferenca) + "</td><td>" + sinal(Math.round(item.pessoas)) +
+        "</td><td>" + casaDecimal(item.z) + "</td>";
+    }
   }
 };
 function outrosDoRecorte(locais) {
@@ -513,9 +669,11 @@ function pintarRanking() {
     linhasRanking.sort((a, b) => ordenarPar(lista.chave(a)[coluna], lista.chave(b)[coluna], direcao));
   }
   const quantidade = linhasRanking.length;
-  document.querySelector("#dados-contagem").textContent = quantidade
-    ? (quantidade === 1 ? "1 local neste recorte." : numero(quantidade) + " locais neste recorte.") + " Clique numa linha para abrir o local no mapa. Clique no título da coluna para ordenar."
-    : "Nenhum local neste recorte.";
+  document.querySelector("#dados-contagem").textContent = typeof lista.contagem === "function"
+    ? lista.contagem(linhasRanking)
+    : quantidade
+      ? (quantidade === 1 ? "1 local neste recorte." : numero(quantidade) + " locais neste recorte.") + " Clique numa linha para abrir o local no mapa. Clique no título da coluna para ordenar."
+      : "Nenhum local neste recorte.";
   document.querySelector("#ranking").innerHTML = "<table><thead><tr>" +
     cabecalhoOrdenavel(lista.colunas()) +
     "</tr></thead><tbody>" +
